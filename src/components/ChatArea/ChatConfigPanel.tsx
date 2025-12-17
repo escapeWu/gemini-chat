@@ -11,6 +11,8 @@ import type { ChatWindowConfig } from '../../types/chatWindow';
 import type { ModelConfig, ThinkingLevel, ImageGenerationConfig } from '../../types/models';
 import { DEFAULT_IMAGE_GENERATION_CONFIG } from '../../types/models';
 import { useModelStore } from '../../stores/model';
+import { useSettingsStore } from '../../stores/settings';
+import { getEnabledModels } from '../../services/model';
 import { useModelCapabilities, ThinkingLevelSelector, ThinkingBudgetSlider, ImageConfigPanel } from '../ModelParams';
 import { useReducedMotion } from '../motion';
 import { durationValues, easings } from '../../design/tokens';
@@ -341,10 +343,10 @@ export function ChatConfigPanel({
 
         {/* 内容 */}
         <div className="px-6 py-4 space-y-6">
-          {/* 模型选择 */}
+          {/* 模型选择 - 需求: 4.2 只显示启用的模型 */}
           <ModelSelector
             currentModel={config.model}
-            models={models}
+            models={getEnabledModels(models)}
             onChange={handleModelChange}
           />
 
@@ -399,6 +401,12 @@ export function ChatConfigPanel({
               </button>
             </div>
           )}
+
+          {/* 流式响应开关 - Requirements: 1.2, 1.5 */}
+          <StreamingToggle
+            value={config.streamingEnabled}
+            onChange={(enabled) => onConfigChange({ streamingEnabled: enabled })}
+          />
 
           {/* 图片参数配置 */}
           {capabilities.supportsImageGeneration && (
@@ -466,6 +474,87 @@ export function ChatConfigPanel({
   );
 
   return createPortal(panelContent, document.body);
+}
+
+// ============ 子组件：流式响应开关 ============
+
+interface StreamingToggleProps {
+  /** 当前值（undefined 表示使用全局设置） */
+  value: boolean | undefined;
+  /** 变更回调 */
+  onChange: (enabled: boolean | undefined) => void;
+}
+
+/**
+ * 流式响应开关组件
+ * 支持三态：启用、禁用、使用全局设置
+ * Requirements: 1.2, 1.5
+ */
+function StreamingToggle({ value, onChange }: StreamingToggleProps) {
+  // 获取全局流式设置
+  const globalStreamingEnabled = useSettingsStore((state) => state.streamingEnabled);
+  
+  // 获取当前状态的显示文本
+  const getStatusText = () => {
+    if (value === undefined) {
+      return `使用全局设置 (${globalStreamingEnabled ? '开' : '关'})`;
+    }
+    return value ? '启用' : '禁用';
+  };
+
+  // 循环切换状态：undefined -> true -> false -> undefined
+  const handleToggle = () => {
+    if (value === undefined) {
+      onChange(true);
+    } else if (value === true) {
+      onChange(false);
+    } else {
+      onChange(undefined);
+    }
+  };
+
+  // 获取开关的背景颜色
+  const getToggleColor = () => {
+    if (value === undefined) return 'bg-neutral-400 dark:bg-neutral-500';
+    return value ? 'bg-primary-500' : 'bg-neutral-300 dark:bg-neutral-600';
+  };
+
+  // 获取开关的位置
+  const getTogglePosition = () => {
+    if (value === undefined) return 'translate-x-3.5';
+    return value ? 'translate-x-6' : 'translate-x-1';
+  };
+
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+          流式响应
+        </label>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          {getStatusText()}
+        </p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={value === true}
+        onClick={handleToggle}
+        className={`
+          relative inline-flex h-6 w-11 items-center rounded-full transition-colors
+          focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
+          ${getToggleColor()}
+        `}
+      >
+        <span
+          className={`
+            inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+            ${getTogglePosition()}
+          `}
+        />
+      </button>
+    </div>
+  );
 }
 
 // ============ 图标组件 ============

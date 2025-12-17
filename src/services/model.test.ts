@@ -5,7 +5,7 @@
 
 import { describe, it } from 'vitest';
 import fc from 'fast-check';
-import { detectApiProvider, detectModelCapabilities, MODEL_CAPABILITIES, mergeModels, getEffectiveConfig, resolveRedirectChain } from './model';
+import { detectApiProvider, detectModelCapabilities, MODEL_CAPABILITIES, mergeModels, getEffectiveConfig, resolveRedirectChain, getEnabledModels, sortModels, setNewModelsDisabled } from './model';
 import type { ModelConfig, ModelAdvancedConfig } from '../types/models';
 
 // ============ API 提供商检测属性测试 ============
@@ -881,6 +881,471 @@ describe('重定向参数解析属性测试', () => {
                    JSON.stringify(result2) === JSON.stringify(result3);
           }
         ),
+        { numRuns: 100 }
+      );
+    });
+  });
+});
+
+
+// ============ 模型过滤属性测试 ============
+
+describe('模型过滤属性测试', () => {
+  /**
+   * **Feature: app-enhancements, Property 2: 模型过滤一致性**
+   * *对于任意* 模型列表，过滤后的可用模型列表应只包含 `enabled !== false` 的模型。
+   * **Validates: Requirements 4.2**
+   */
+  describe('Property 2: 模型过滤一致性', () => {
+
+    // 生成具有唯一 ID 的模型配置
+    const uniqueModelConfigArbitrary = (index: number): fc.Arbitrary<ModelConfig> => fc.record({
+      id: fc.constant(`model-${index}`),
+      name: fc.string({ minLength: 1, maxLength: 50 }),
+      description: fc.string({ maxLength: 100 }),
+      enabled: fc.option(fc.boolean(), { nil: undefined }),
+    });
+
+    // 生成具有唯一 ID 的模型列表
+    const modelListArbitrary = fc.integer({ min: 0, max: 20 }).chain(length =>
+      length === 0 
+        ? fc.constant([]) 
+        : fc.tuple(...Array.from({ length }, (_, i) => uniqueModelConfigArbitrary(i)))
+    );
+
+    it('过滤后的列表应只包含 enabled !== false 的模型', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const filtered = getEnabledModels(models);
+          
+          // 验证所有过滤后的模型都满足 enabled !== false
+          return filtered.every((model: ModelConfig) => model.enabled !== false);
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('enabled 为 true 的模型应该被保留', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const filtered = getEnabledModels(models);
+          const filteredIds = new Set(filtered.map((m: ModelConfig) => m.id));
+          
+          // 所有 enabled 为 true 的模型都应该在结果中
+          for (const model of models) {
+            if (model.enabled === true && !filteredIds.has(model.id)) {
+              return false;
+            }
+          }
+          return true;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('enabled 为 undefined 的模型应该被保留', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const filtered = getEnabledModels(models);
+          const filteredIds = new Set(filtered.map((m: ModelConfig) => m.id));
+          
+          // 所有 enabled 为 undefined 的模型都应该在结果中
+          for (const model of models) {
+            if (model.enabled === undefined && !filteredIds.has(model.id)) {
+              return false;
+            }
+          }
+          return true;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('enabled 为 false 的模型应该被过滤掉', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const filtered = getEnabledModels(models);
+          const filteredIds = new Set(filtered.map((m: ModelConfig) => m.id));
+          
+          // 所有 enabled 为 false 的模型都不应该在结果中
+          for (const model of models) {
+            if (model.enabled === false && filteredIds.has(model.id)) {
+              return false;
+            }
+          }
+          return true;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('过滤后的列表长度应该等于 enabled !== false 的模型数量', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const filtered = getEnabledModels(models);
+          const expectedCount = models.filter(m => m.enabled !== false).length;
+          
+          return filtered.length === expectedCount;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('空列表过滤后应该返回空列表', () => {
+      const filtered = getEnabledModels([]);
+      return filtered.length === 0;
+    });
+
+    it('过滤操作应该是确定性的', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const filtered1 = getEnabledModels(models);
+          const filtered2 = getEnabledModels(models);
+          
+          if (filtered1.length !== filtered2.length) {
+            return false;
+          }
+          
+          for (let i = 0; i < filtered1.length; i++) {
+            if (filtered1[i].id !== filtered2[i].id) {
+              return false;
+            }
+          }
+          
+          return true;
+        }),
+        { numRuns: 100 }
+      );
+    });
+  });
+});
+
+
+// ============ 模型排序属性测试 ============
+
+describe('模型排序属性测试', () => {
+  /**
+   * **Feature: app-enhancements, Property 4: 模型列表排序**
+   * *对于任意* 模型列表，排序后启用的模型应全部位于禁用模型之前。
+   * **Validates: Requirements 4.6**
+   */
+  describe('Property 4: 模型列表排序', () => {
+    // 生成模型配置
+    const modelConfigArbitrary: fc.Arbitrary<ModelConfig> = fc.record({
+      id: fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-'.split('')), { minLength: 3, maxLength: 20 }),
+      name: fc.string({ minLength: 1, maxLength: 50 }),
+      description: fc.string({ maxLength: 100 }),
+      enabled: fc.option(fc.boolean(), { nil: undefined }),
+    });
+
+    // 生成模型列表
+    const modelListArbitrary = fc.array(modelConfigArbitrary, { minLength: 0, maxLength: 20 });
+
+    it('排序后启用的模型应全部位于禁用模型之前', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const sorted = sortModels(models);
+          
+          // 找到第一个禁用模型的索引
+          let firstDisabledIndex = -1;
+          for (let i = 0; i < sorted.length; i++) {
+            if (sorted[i].enabled === false) {
+              firstDisabledIndex = i;
+              break;
+            }
+          }
+          
+          // 如果没有禁用模型，测试通过
+          if (firstDisabledIndex === -1) {
+            return true;
+          }
+          
+          // 验证第一个禁用模型之后的所有模型都是禁用的
+          for (let i = firstDisabledIndex; i < sorted.length; i++) {
+            if (sorted[i].enabled !== false) {
+              return false;
+            }
+          }
+          
+          return true;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('排序后所有启用的模型（enabled !== false）应该在前面', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const sorted = sortModels(models);
+          
+          // 找到最后一个启用模型的索引
+          let lastEnabledIndex = -1;
+          for (let i = sorted.length - 1; i >= 0; i--) {
+            if (sorted[i].enabled !== false) {
+              lastEnabledIndex = i;
+              break;
+            }
+          }
+          
+          // 如果没有启用模型，测试通过
+          if (lastEnabledIndex === -1) {
+            return true;
+          }
+          
+          // 验证最后一个启用模型之前的所有模型都是启用的
+          for (let i = 0; i <= lastEnabledIndex; i++) {
+            if (sorted[i].enabled === false) {
+              return false;
+            }
+          }
+          
+          return true;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('排序后的列表长度应该与原列表相同', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const sorted = sortModels(models);
+          return sorted.length === models.length;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('排序后的列表应该包含原列表的所有模型', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const sorted = sortModels(models);
+          const originalIds = new Set(models.map(m => m.id));
+          const sortedIds = new Set(sorted.map(m => m.id));
+          
+          // 验证 ID 集合相等
+          if (originalIds.size !== sortedIds.size) {
+            return false;
+          }
+          
+          for (const id of originalIds) {
+            if (!sortedIds.has(id)) {
+              return false;
+            }
+          }
+          
+          return true;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('排序不应该修改原列表', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const originalCopy = JSON.stringify(models);
+          sortModels(models);
+          const afterSort = JSON.stringify(models);
+          
+          return originalCopy === afterSort;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('空列表排序后应该返回空列表', () => {
+      const sorted = sortModels([]);
+      return sorted.length === 0;
+    });
+
+    it('排序操作应该是确定性的', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const sorted1 = sortModels(models);
+          const sorted2 = sortModels(models);
+          
+          if (sorted1.length !== sorted2.length) {
+            return false;
+          }
+          
+          for (let i = 0; i < sorted1.length; i++) {
+            if (sorted1[i].id !== sorted2[i].id) {
+              return false;
+            }
+          }
+          
+          return true;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('启用模型数量应该与排序前相同', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const sorted = sortModels(models);
+          const originalEnabledCount = models.filter(m => m.enabled !== false).length;
+          const sortedEnabledCount = sorted.filter(m => m.enabled !== false).length;
+          
+          return originalEnabledCount === sortedEnabledCount;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('禁用模型数量应该与排序前相同', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (models) => {
+          const sorted = sortModels(models);
+          const originalDisabledCount = models.filter(m => m.enabled === false).length;
+          const sortedDisabledCount = sorted.filter(m => m.enabled === false).length;
+          
+          return originalDisabledCount === sortedDisabledCount;
+        }),
+        { numRuns: 100 }
+      );
+    });
+  });
+});
+
+
+// ============ 新模型默认禁用属性测试 ============
+
+describe('新模型默认禁用属性测试', () => {
+  /**
+   * **Feature: app-enhancements, Property 3: 新模型默认禁用**
+   * *对于任意* 新获取的模型，其 `enabled` 属性应默认为 `false`。
+   * **Validates: Requirements 4.4**
+   */
+  describe('Property 3: 新模型默认禁用', () => {
+    // 生成模型配置
+    const modelConfigArbitrary: fc.Arbitrary<ModelConfig> = fc.record({
+      id: fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-'.split('')), { minLength: 3, maxLength: 20 }),
+      name: fc.string({ minLength: 1, maxLength: 50 }),
+      description: fc.string({ maxLength: 100 }),
+    });
+
+    // 生成模型列表
+    const modelListArbitrary = fc.array(modelConfigArbitrary, { minLength: 0, maxLength: 10 });
+
+    // 生成模型 ID 集合
+    const modelIdSetArbitrary = fc.array(
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-'.split('')), { minLength: 3, maxLength: 20 }),
+      { minLength: 0, maxLength: 10 }
+    ).map(ids => new Set(ids));
+
+    it('新模型（不在现有列表中）应该被设置为 enabled: false', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (remoteModels) => {
+          // 使用空集合，所有模型都是新的
+          const existingIds = new Set<string>();
+          const result = setNewModelsDisabled(remoteModels, existingIds);
+          
+          // 所有模型都应该被设置为 enabled: false
+          return result.every(model => model.enabled === false);
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('已存在的模型应该保持 enabled 为 undefined', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, (remoteModels) => {
+          // 所有远程模型都在现有列表中
+          const existingIds = new Set(remoteModels.map(m => m.id));
+          const result = setNewModelsDisabled(remoteModels, existingIds);
+          
+          // 所有模型都应该保持 enabled: undefined
+          return result.every(model => model.enabled === undefined);
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('混合情况：新模型禁用，已存在模型保持 undefined', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, modelIdSetArbitrary, (remoteModels, existingIds) => {
+          const result = setNewModelsDisabled(remoteModels, existingIds);
+          
+          for (let i = 0; i < remoteModels.length; i++) {
+            const originalModel = remoteModels[i];
+            const resultModel = result[i];
+            
+            if (existingIds.has(originalModel.id)) {
+              // 已存在的模型应该保持 enabled: undefined
+              if (resultModel.enabled !== undefined) {
+                return false;
+              }
+            } else {
+              // 新模型应该被设置为 enabled: false
+              if (resultModel.enabled !== false) {
+                return false;
+              }
+            }
+          }
+          
+          return true;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('处理后的列表长度应该与原列表相同', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, modelIdSetArbitrary, (remoteModels, existingIds) => {
+          const result = setNewModelsDisabled(remoteModels, existingIds);
+          return result.length === remoteModels.length;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('处理后的模型应该保留原有的其他属性', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, modelIdSetArbitrary, (remoteModels, existingIds) => {
+          const result = setNewModelsDisabled(remoteModels, existingIds);
+          
+          for (let i = 0; i < remoteModels.length; i++) {
+            const original = remoteModels[i];
+            const processed = result[i];
+            
+            // 验证其他属性保持不变
+            if (processed.id !== original.id ||
+                processed.name !== original.name ||
+                processed.description !== original.description) {
+              return false;
+            }
+          }
+          
+          return true;
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('空列表处理后应该返回空列表', () => {
+      const result = setNewModelsDisabled([], new Set());
+      return result.length === 0;
+    });
+
+    it('处理操作应该是确定性的', () => {
+      fc.assert(
+        fc.property(modelListArbitrary, modelIdSetArbitrary, (remoteModels, existingIds) => {
+          const result1 = setNewModelsDisabled(remoteModels, existingIds);
+          const result2 = setNewModelsDisabled(remoteModels, existingIds);
+          
+          if (result1.length !== result2.length) {
+            return false;
+          }
+          
+          for (let i = 0; i < result1.length; i++) {
+            if (result1[i].id !== result2[i].id ||
+                result1[i].enabled !== result2[i].enabled) {
+              return false;
+            }
+          }
+          
+          return true;
+        }),
         { numRuns: 100 }
       );
     });

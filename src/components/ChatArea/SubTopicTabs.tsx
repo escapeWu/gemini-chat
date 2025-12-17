@@ -179,44 +179,55 @@ function TabItem({
         </button>
       )}
 
-      {/* 删除确认弹窗 */}
+      {/* 删除确认弹窗 - 使用 Portal 避免被裁剪 */}
       {showDeleteConfirm && (
-        <div
-          className="
-            absolute top-full left-0 mt-1 z-50 p-2 bg-white dark:bg-neutral-800
-            rounded-lg shadow-lg border border-neutral-200 dark:border-neutral-700
-            min-w-[160px]
-          "
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p className="text-xs text-neutral-600 dark:text-neutral-400 mb-2">
-            确定删除此子话题？
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={handleConfirmDelete}
-              className="
-                flex-1 px-2 text-xs font-medium text-white touch-manipulation
-                bg-error-light dark:bg-error-dark rounded
-                hover:opacity-90
-              "
-              style={{ minHeight: touchTargets.minimum }}
-            >
-              删除
-            </button>
-            <button
-              onClick={handleCancelDelete}
-              className="
-                flex-1 px-2 text-xs font-medium touch-manipulation
-                bg-neutral-100 dark:bg-neutral-700 rounded
-                hover:bg-neutral-200 dark:hover:bg-neutral-600
-              "
-              style={{ minHeight: touchTargets.minimum }}
-            >
-              取消
-            </button>
+        <>
+          {/* 遮罩层 - 点击关闭 */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={handleCancelDelete}
+          />
+          <div
+            className="
+              fixed z-50 p-3 bg-white dark:bg-neutral-800
+              rounded-lg shadow-xl border border-neutral-200 dark:border-neutral-700
+              min-w-[180px]
+            "
+            style={{
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-3">
+              确定删除此话题？
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleConfirmDelete}
+                className="
+                  flex-1 px-3 py-2 text-sm font-medium text-white touch-manipulation
+                  bg-red-500 hover:bg-red-600 rounded-lg
+                  transition-colors
+                "
+              >
+                删除
+              </button>
+              <button
+                onClick={handleCancelDelete}
+                className="
+                  flex-1 px-3 py-2 text-sm font-medium touch-manipulation
+                  bg-neutral-100 dark:bg-neutral-700 rounded-lg
+                  hover:bg-neutral-200 dark:hover:bg-neutral-600
+                  transition-colors
+                "
+              >
+                取消
+              </button>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

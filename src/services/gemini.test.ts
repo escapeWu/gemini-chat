@@ -64,22 +64,23 @@ describe('Gemini API 服务属性测试', () => {
       );
     });
 
-    it('应该拒绝空字符串和纯空白字符串', () => {
+    it('应该接受空字符串和纯空白字符串（需求 1.1: 空端点使用官方地址）', () => {
       const emptyOrWhitespaceArbitrary = fc.constantFrom('', ' ', '  ', '\t', '\n', '   \t\n  ');
 
       fc.assert(
         fc.property(emptyOrWhitespaceArbitrary, (url) => {
           const result = validateApiEndpoint(url);
-          return result.valid === false && result.error !== undefined;
+          // 需求 1.1: 空字符串或仅包含空白字符是有效的（将使用官方默认地址）
+          return result.valid === true;
         }),
         { numRuns: 10 }
       );
     });
 
-    it('应该拒绝不以协议开头的字符串', () => {
+    it('应该拒绝不以协议开头的非空字符串', () => {
       const noProtocolArbitrary = fc.stringOf(
         fc.char().filter(c => c !== ':' && c !== '/')
-      ).filter(s => s.length > 0 && !s.startsWith('http'));
+      ).filter(s => s.trim().length > 0 && !s.startsWith('http'));
 
       fc.assert(
         fc.property(noProtocolArbitrary, (url) => {

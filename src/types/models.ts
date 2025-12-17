@@ -29,8 +29,21 @@ export interface Conversation {
 }
 
 /**
+ * Token 使用量
+ * 需求: 7.1, 7.2
+ */
+export interface MessageTokenUsage {
+  /** 输入 Token 数 */
+  promptTokens: number;
+  /** 输出 Token 数 */
+  completionTokens: number;
+  /** 总 Token 数 */
+  totalTokens: number;
+}
+
+/**
  * 消息模型
- * 需求: 5.1, 4.3
+ * 需求: 5.1, 4.3, 7.2
  */
 export interface Message {
   /** 消息唯一标识 */
@@ -45,6 +58,12 @@ export interface Message {
   timestamp: number;
   /** 思维链摘要（可选） - 需求: 4.3 */
   thoughtSummary?: string;
+  /** Token 使用量（可选） - 需求: 7.2 */
+  tokenUsage?: MessageTokenUsage;
+  /** 请求耗时（毫秒，可选） - 需求: 8.4 */
+  duration?: number;
+  /** 首字节时间（毫秒，可选） - 需求: 8.3 */
+  ttfb?: number;
 }
 
 /**
@@ -257,6 +276,8 @@ export interface ModelConfig extends ModelInfo {
   advancedConfig?: ModelAdvancedConfig;
   /** API 提供商 */
   provider?: ApiProvider;
+  /** 是否启用（显示在对话模型选择中） - 需求: 4.1 */
+  enabled?: boolean;
 }
 
 /**
@@ -410,9 +431,16 @@ export const GEMINI_MODELS: ModelInfo[] = [
 // ============ 默认值 ============
 
 /**
- * 默认 API 端点
+ * 官方 API 端点地址
+ * 需求: 1.1
  */
-export const DEFAULT_API_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta';
+export const OFFICIAL_API_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta';
+
+/**
+ * 默认 API 端点（空字符串表示使用官方地址）
+ * 需求: 1.1
+ */
+export const DEFAULT_API_ENDPOINT = '';
 
 /**
  * 默认模型

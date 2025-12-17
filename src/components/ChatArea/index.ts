@@ -9,6 +9,7 @@ export { InlineConfigPanel } from './InlineConfigPanel';
 export { ModelParamsBar } from './ModelParamsBar';
 export { ChatConfigPanel } from './ChatConfigPanel';
 export { ThoughtSummaryCard } from './ThoughtSummaryCard';
+export { MessageDetailModal } from './MessageDetailModal';
 
 export type { ChatAreaProps } from './ChatArea';
 export type { ChatHeaderProps } from './ChatHeader';
@@ -17,3 +18,4 @@ export type { InlineConfigPanelProps } from './InlineConfigPanel';
 export type { ModelParamsBarProps } from './ModelParamsBar';
 export type { ChatConfigPanelProps } from './ChatConfigPanel';
 export type { ThoughtSummaryCardProps } from './ThoughtSummaryCard';
+export type { MessageDetailModalProps } from './MessageDetailModal';

@@ -11,7 +11,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { ChatHeader } from './ChatHeader';
 import { SubTopicTabs } from './SubTopicTabs';
 import { ChatConfigPanel } from './ChatConfigPanel';
-import { MessageList } from '../MessageList';
+import { VirtualMessageList } from './VirtualMessageList';
 import { MessageInput } from '../MessageInput';
 import { MarkdownRenderer } from '../MarkdownRenderer';
 import type { ChatWindowConfig } from '../../types/chatWindow';
@@ -45,6 +45,7 @@ export function ChatArea({ windowId: propWindowId }: ChatAreaProps) {
     isSending,
     streamingText,
     sendMessage,
+    cancelRequest,
     createSubTopic,
     deleteSubTopic,
     selectSubTopic,
@@ -175,8 +176,8 @@ export function ChatArea({ windowId: propWindowId }: ChatAreaProps) {
         onRename={handleRenameSubTopic}
       />
 
-      {/* 消息列表 - Requirements: 5.2, 5.3 */}
-      <MessageList
+      {/* 虚拟滚动消息列表 - Requirements: 1.1, 5.2, 5.3 */}
+      <VirtualMessageList
         messages={currentSubTopic?.messages || []}
         isSending={isSending}
         streamingText={streamingText}
@@ -187,6 +188,7 @@ export function ChatArea({ windowId: propWindowId }: ChatAreaProps) {
       {/* 注意：已移除 ModelParamsBar 组件 - Requirements: 7.5 */}
       <MessageInput
         onSend={handleSendMessage}
+        onCancel={cancelRequest}
         isSending={isSending}
         disabled={!apiKey}
         placeholder={

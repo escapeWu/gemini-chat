@@ -8,7 +8,7 @@ import type { AppSettings, ApiConfig, ThemeMode } from '../types/models';
 import type { GenerationConfig, SafetySetting } from '../types/gemini';
 import { DEFAULT_APP_SETTINGS } from '../types/models';
 import { saveSettings, getSettings } from '../services/storage';
-import { testConnection as testApiConnection } from '../services/gemini';
+import { testConnection as testApiConnection, normalizeApiEndpoint } from '../services/gemini';
 
 // ============ Store 状态接口 ============
 
@@ -98,8 +98,8 @@ interface SettingsActions {
   setStreamingEnabled: (enabled: boolean) => void;
 
   // 连接测试
-  /** 测试 API 连接 */
-  testConnection: () => Promise<boolean>;
+  /** 测试 API 连接，可指定测试模型 */
+  testConnection: (modelId?: string) => Promise<boolean>;
 
   // 工具方法
   /** 获取当前 API 配置 */
@@ -261,11 +261,18 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
 
   // 测试连接
-  testConnection: async () => {
+  // 需求: 1.4 - 支持指定模型进行测试
+  testConnection: async (modelId?: string) => {
     set({ connectionStatus: 'testing', connectionError: null });
     try {
       const config = get().getApiConfig();
-      const result = await testApiConnection(config);
+      // 需求: 1.5 - 使用规范化后的端点进行测试（支持空端点使用官方地址）
+      const normalizedEndpoint = normalizeApiEndpoint(config.endpoint);
+      // 如果指定了模型 ID，使用指定的模型进行测试
+      const testConfig = modelId 
+        ? { ...config, endpoint: normalizedEndpoint, model: modelId } 
+        : { ...config, endpoint: normalizedEndpoint };
+      const result = await testApiConnection(testConfig);
       if (result.success) {
         set({ connectionStatus: 'success', connectionError: null });
         return true;

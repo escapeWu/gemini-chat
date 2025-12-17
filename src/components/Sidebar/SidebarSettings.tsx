@@ -8,6 +8,7 @@ import React, { useState, useCallback } from 'react';
 import { useSettingsStore } from '../../stores/settings';
 import { useChatWindowStore } from '../../stores/chatWindow';
 import { useModelStore } from '../../stores/model';
+import { getEnabledModels } from '../../services/model';
 import { durations, easings, touchTargets } from '../../design/tokens';
 import { ThinkingLevelSelector } from '../ModelParams/ThinkingLevelSelector';
 import { ThinkingBudgetSlider } from '../ModelParams/ThinkingBudgetSlider';
@@ -219,10 +220,10 @@ function ApiConfigGroup() {
         />
       </div>
 
-      {/* 测试连接按钮 */}
+      {/* 测试连接按钮 - 需求: 1.5 允许端点为空时测试（使用官方地址） */}
       <button
         onClick={() => testConnection()}
-        disabled={connectionStatus === 'testing' || !apiEndpoint || !apiKey}
+        disabled={connectionStatus === 'testing' || !apiKey}
         className="w-full px-3 py-1.5 text-xs font-medium rounded-md
           bg-primary-500 hover:bg-primary-600 disabled:bg-neutral-300 dark:disabled:bg-neutral-600
           text-white transition-colors disabled:cursor-not-allowed"
@@ -240,6 +241,9 @@ function ApiConfigGroup() {
 function ModelSelectGroup() {
   const { currentModel, setCurrentModel } = useSettingsStore();
   const { models } = useModelStore();
+  
+  // 需求: 4.2 只显示启用的模型
+  const enabledModels = getEnabledModels(models);
 
   return (
     <div className="space-y-2">
@@ -253,7 +257,7 @@ function ModelSelectGroup() {
           bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100
           focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
       >
-        {models.map((model) => (
+        {enabledModels.map((model) => (
           <option key={model.id} value={model.id}>
             {model.name}
           </option>

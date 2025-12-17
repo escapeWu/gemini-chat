@@ -23,9 +23,13 @@ import {
   SafetySettingsSection,
   DataManagementSection,
 } from './Settings/SettingsSections';
+import { DebugPanel } from './Debug';
+import { FullscreenGallery } from './Gallery/FullscreenGallery';
+import { ImagePreviewModal } from './ImagePreviewModal';
+import type { GeneratedImage } from '../types';
 
 /** 侧边栏视图类型 */
-export type SidebarView = 'assistants' | 'settings';
+export type SidebarView = 'assistants' | 'settings' | 'images';
 
 /** 侧边栏上下文 */
 interface SidebarContextType {
@@ -180,6 +184,11 @@ export function Layout({ sidebar, children }: LayoutProps) {
   const [currentView, setCurrentView] = useState<SidebarView>('assistants');
   // 设置模态框状态
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  // 调试面板状态
+  // 需求: 6.1
+  const [isDebugPanelOpen, setIsDebugPanelOpen] = useState(false);
+  // 图片预览状态 - 需求: 5.2
+  const [previewImage, setPreviewImage] = useState<GeneratedImage | null>(null);
   const isMobile = useIsMobile();
 
   // 触摸手势处理
@@ -242,6 +251,13 @@ export function Layout({ sidebar, children }: LayoutProps) {
     setSidebarCollapsed(false);
   }, [setSidebarCollapsed]);
 
+  // 点击图片库按钮
+  // 需求: 2.1
+  const handleImagesClick = useCallback(() => {
+    setCurrentView('images');
+    setSidebarCollapsed(false);
+  }, [setSidebarCollapsed]);
+
   // 点击设置按钮 - 打开毛玻璃设置模态框
   const handleSettingsClick = useCallback(() => {
     setIsSettingsModalOpen(true);
@@ -250,6 +266,32 @@ export function Layout({ sidebar, children }: LayoutProps) {
   // 关闭设置模态框
   const handleCloseSettingsModal = useCallback(() => {
     setIsSettingsModalOpen(false);
+  }, []);
+
+  // 点击调试按钮 - 打开调试面板
+  // 需求: 6.1
+  const handleDebugClick = useCallback(() => {
+    setIsDebugPanelOpen(true);
+  }, []);
+
+  // 关闭调试面板
+  const handleCloseDebugPanel = useCallback(() => {
+    setIsDebugPanelOpen(false);
+  }, []);
+
+  // 返回对话视图 - 需求: 2.3
+  const handleBackToChat = useCallback(() => {
+    setCurrentView('assistants');
+  }, []);
+
+  // 处理图片点击 - 需求: 5.2
+  const handleImageClick = useCallback((image: GeneratedImage) => {
+    setPreviewImage(image);
+  }, []);
+
+  // 关闭图片预览
+  const handleCloseImagePreview = useCallback(() => {
+    setPreviewImage(null);
   }, []);
 
   return (
@@ -273,7 +315,7 @@ export function Layout({ sidebar, children }: LayoutProps) {
             </div>
           </div>
 
-          {/* 导航图标 - 只保留助手 */}
+          {/* 导航图标 - 助手和图片库 */}
           <div className="flex-1 flex flex-col items-center py-3 gap-2">
             <NavIconButton
               icon={<ChatIcon />}
@@ -281,10 +323,23 @@ export function Layout({ sidebar, children }: LayoutProps) {
               isActive={currentView === 'assistants' && !sidebarCollapsed}
               onClick={handleAssistantsClick}
             />
+            <NavIconButton
+              icon={<ImageGalleryIcon />}
+              label="图片库"
+              isActive={currentView === 'images' && !sidebarCollapsed}
+              onClick={handleImagesClick}
+            />
           </div>
 
-          {/* 底部工具 - 主题切换和设置 */}
+          {/* 底部工具 - 调试、主题切换和设置 */}
           <div className="flex flex-col items-center py-3 gap-2 border-t border-primary-500/30">
+            {/* 调试面板入口按钮 - 需求: 6.1 */}
+            <NavIconButton
+              icon={<DebugIcon />}
+              label="API 调试"
+              isActive={isDebugPanelOpen}
+              onClick={handleDebugClick}
+            />
             <NavIconButton
               icon={effectiveTheme === 'dark' ? <MoonIcon /> : <SunIcon />}
               label={effectiveTheme === 'dark' ? '切换到浅色' : '切换到深色'}
@@ -313,9 +368,16 @@ export function Layout({ sidebar, children }: LayoutProps) {
           </div>
         </aside>
 
-        {/* 主内容区 */}
+        {/* 主内容区 - 需求: 2.1, 2.2 */}
         <main className="flex flex-1 flex-col overflow-hidden transition-colors duration-300">
-          {children}
+          {currentView === 'images' ? (
+            <FullscreenGallery
+              onBackToChat={handleBackToChat}
+              onImageClick={handleImageClick}
+            />
+          ) : (
+            children
+          )}
         </main>
 
         {/* 毛玻璃设置模态框 */}
@@ -323,6 +385,19 @@ export function Layout({ sidebar, children }: LayoutProps) {
           isOpen={isSettingsModalOpen}
           onClose={handleCloseSettingsModal}
           renderContent={renderSettingsContent}
+        />
+
+        {/* 调试面板 - 需求: 6.1 */}
+        <DebugPanel
+          isOpen={isDebugPanelOpen}
+          onClose={handleCloseDebugPanel}
+        />
+
+        {/* 图片预览模态框 - 需求: 5.2 */}
+        <ImagePreviewModal
+          image={previewImage}
+          isOpen={previewImage !== null}
+          onClose={handleCloseImagePreview}
         />
       </div>
     </SidebarContext.Provider>
@@ -392,6 +467,28 @@ function MoonIcon() {
     <svg className="w-full h-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
         d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+    </svg>
+  );
+}
+
+function ImageGalleryIcon() {
+  return (
+    <svg className="w-full h-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
+  );
+}
+
+/**
+ * 调试图标
+ * 需求: 6.1
+ */
+function DebugIcon() {
+  return (
+    <svg className="w-full h-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+        d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
     </svg>
   );
 }

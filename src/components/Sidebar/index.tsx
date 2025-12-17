@@ -12,8 +12,11 @@ import { ChatWindowCard } from './ChatWindowCard';
 import { SearchBar, filterChatWindows } from './SearchBar';
 import { DragDropList } from './DragDropList';
 import { SidebarSettings } from './SidebarSettings';
+import { ImageGallery } from './ImageGallery';
+import { ImagePreviewModal } from '../ImagePreviewModal';
 import { touchTargets } from '../../design/tokens';
 import type { ChatWindow } from '../../types/chatWindow';
+import type { GeneratedImage } from '../../types';
 
 /**
  * 现代化侧边栏
@@ -40,6 +43,9 @@ export function Sidebar() {
   const [editingId, setEditingId] = useState<string | null>(null);
   // 编辑中的标题
   const [editingTitle, setEditingTitle] = useState('');
+  // 图片预览状态
+  const [previewImage, setPreviewImage] = useState<GeneratedImage | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // 过滤后的窗口列表
   const filteredWindows = useMemo(() => {
@@ -109,6 +115,18 @@ export function Sidebar() {
     reorderWindows(reorderedWindows);
   }, [reorderWindows]);
 
+  // 处理图片点击
+  const handleImageClick = useCallback((image: GeneratedImage) => {
+    setPreviewImage(image);
+    setIsPreviewOpen(true);
+  }, []);
+
+  // 关闭图片预览
+  const handleClosePreview = useCallback(() => {
+    setIsPreviewOpen(false);
+    setPreviewImage(null);
+  }, []);
+
   // 渲染聊天窗口卡片
   const renderWindowCard = useCallback((
     window: ChatWindow,
@@ -158,7 +176,7 @@ export function Sidebar() {
     <div className="flex h-full flex-col bg-neutral-50 dark:bg-neutral-800 transition-colors duration-300">
       <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-200 dark:border-neutral-700">
         <h2 className="text-base font-semibold text-neutral-800 dark:text-neutral-200">
-          {currentView === 'assistants' ? '助手' : '设置'}
+          {currentView === 'assistants' ? '助手' : currentView === 'images' ? '图片库' : '设置'}
         </h2>
       </div>
 
@@ -192,6 +210,17 @@ export function Sidebar() {
               {filteredWindows.length === windows.length ? `${windows.length} 个程序` : `显示 ${filteredWindows.length} / ${windows.length} 个程序`}
             </p>
           </div>
+        </>
+      ) : currentView === 'images' ? (
+        <>
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <ImageGallery onImageClick={handleImageClick} />
+          </div>
+          <ImagePreviewModal
+            image={previewImage}
+            isOpen={isPreviewOpen}
+            onClose={handleClosePreview}
+          />
         </>
       ) : (
         <SidebarSettings isExpanded={true} />

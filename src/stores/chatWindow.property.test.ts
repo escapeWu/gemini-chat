@@ -985,3 +985,763 @@ describe('子话题消息独立性属性测试', () => {
     );
   }, 60000);
 });
+
+describe('消息编辑截断属性测试', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  /**
+   * Property 5: 消息编辑后截断
+   * 对于任意消息列表，当编辑索引为 i 的消息后，列表长度应该变为 i + 1（删除后续所有消息）
+   * 
+   * 验证需求: 3.2
+   */
+  it('Property 5: 消息编辑后截断 - 编辑消息后删除后续所有消息', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        // 生成消息列表（至少 2 条，确保有后续消息可删除）
+        fc.array(
+          fc.record({
+            id: fc.string({ minLength: 5, maxLength: 20 }),
+            role: fc.constantFrom('user', 'model') as fc.Arbitrary<'user' | 'model'>,
+            content: fc.string({ minLength: 1, maxLength: 100 }),
+            timestamp: fc.integer({ min: 1000000000000, max: 2000000000000 }),
+          }),
+          { minLength: 3, maxLength: 10 }
+        ),
+        // 新消息内容
+        fc.string({ minLength: 1, maxLength: 100 }),
+        async (messages, newContent) => {
+          resetStore();
+          
+          // 确保消息列表有效且包含用户消息
+          const userMessageIndices = messages
+            .map((m, i) => ({ ...m, index: i }))
+            .filter(m => m.role === 'user')
+            .map(m => m.index);
+          
+          if (userMessageIndices.length === 0) {
+            return; // 跳过没有用户消息的情况
+          }
+          
+          // 选择一个用户消息进行编辑（不是最后一条，确保有后续消息）
+          const editIndex = userMessageIndices.find(i => i < messages.length - 1);
+          if (editIndex === undefined) {
+            return; // 跳过没有合适编辑位置的情况
+          }
+          
+          const store = useChatWindowStore.getState();
+          
+          // 创建窗口
+          const chatWindow = store.createWindow();
+          const windowId = chatWindow.id;
+          const subTopicId = chatWindow.activeSubTopicId;
+          
+          // 设置初始消息
+          await store.updateSubTopic(windowId, subTopicId, {
+            messages: messages as Message[],
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, 10));
+          
+          // 获取要编辑的消息
+          const currentState = useChatWindowStore.getState();
+          const currentWindow = currentState.windows.find(w => w.id === windowId);
+          if (!currentWindow) return;
+          
+          const subTopic = currentWindow.subTopics.find(st => st.id === subTopicId);
+          if (!subTopic) return;
+          
+          const messageToEdit = subTopic.messages[editIndex];
+          if (!messageToEdit) return;
+          
+          // 记录编辑前的消息数量
+          const messageCountBefore = subTopic.messages.length;
+          
+          // 模拟编辑操作：截断消息列表
+          const truncatedMessages = subTopic.messages.slice(0, editIndex);
+          
+          await store.updateSubTopic(windowId, subTopicId, {
+            messages: truncatedMessages,
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, 10));
+          
+          // 验证截断后的消息数量
+          const finalState = useChatWindowStore.getState();
+          const finalWindow = finalState.windows.find(w => w.id === windowId);
+          if (!finalWindow) return;
+          
+          const finalSubTopic = finalWindow.subTopics.find(st => st.id === subTopicId);
+          if (!finalSubTopic) return;
+          
+          // 验证：消息列表长度应该等于编辑索引（删除了该消息及之后的所有消息）
+          expect(finalSubTopic.messages.length).toBe(editIndex);
+          
+          // 验证：前面的消息保持不变
+          for (let i = 0; i < editIndex; i++) {
+            expect(finalSubTopic.messages[i]?.id).toBe(messages[i]?.id);
+            expect(finalSubTopic.messages[i]?.content).toBe(messages[i]?.content);
+          }
+        }
+      ),
+      { numRuns: 10 }
+    );
+  }, 60000);
+
+  /**
+   * Property 5: 消息编辑后截断 - 边界情况
+   * 编辑第一条消息应该清空所有后续消息
+   */
+  it('Property 5: 消息编辑后截断 - 编辑第一条消息清空后续', async () => {
+    resetStore();
+    
+    const store = useChatWindowStore.getState();
+    const chatWindow = store.createWindow();
+    const windowId = chatWindow.id;
+    const subTopicId = chatWindow.activeSubTopicId;
+    
+    // 设置初始消息
+    const initialMessages: Message[] = [
+      { id: 'msg-1', role: 'user', content: '第一条消息', timestamp: Date.now() },
+      { id: 'msg-2', role: 'model', content: 'AI 回复 1', timestamp: Date.now() + 1 },
+      { id: 'msg-3', role: 'user', content: '第二条消息', timestamp: Date.now() + 2 },
+      { id: 'msg-4', role: 'model', content: 'AI 回复 2', timestamp: Date.now() + 3 },
+    ];
+    
+    await store.updateSubTopic(windowId, subTopicId, {
+      messages: initialMessages,
+    });
+    
+    await new Promise(resolve => setTimeout(resolve, 10));
+    
+    // 模拟编辑第一条消息（索引 0）
+    await store.updateSubTopic(windowId, subTopicId, {
+      messages: [], // 截断到索引 0 之前，即清空
+    });
+    
+    await new Promise(resolve => setTimeout(resolve, 10));
+    
+    // 验证
+    const finalState = useChatWindowStore.getState();
+    const finalWindow = finalState.windows.find(w => w.id === windowId);
+    expect(finalWindow).not.toBeUndefined();
+    
+    if (finalWindow) {
+      const finalSubTopic = finalWindow.subTopics.find(st => st.id === subTopicId);
+      expect(finalSubTopic).not.toBeUndefined();
+      
+      if (finalSubTopic) {
+        // 编辑第一条消息后，应该清空所有消息
+        expect(finalSubTopic.messages.length).toBe(0);
+      }
+    }
+  }, 30000);
+});
+
+
+describe('重新生成消息属性测试', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  /**
+   * **Feature: comprehensive-enhancements, Property 7: 重新生成上下文一致性**
+   * 
+   * 对于任意 AI 消息重新生成请求，发送的消息历史应该与原请求完全一致（不包含被重新生成的消息）
+   * 
+   * **Validates: Requirements 4.1**
+   */
+  it('Property 7: 重新生成上下文一致性 - 上下文消息不包含被重新生成的消息', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        // 生成消息列表（至少包含一个用户消息和一个 AI 消息）
+        fc.array(
+          fc.record({
+            id: fc.string({ minLength: 5, maxLength: 20 }),
+            role: fc.constantFrom('user', 'model') as fc.Arbitrary<'user' | 'model'>,
+            content: fc.string({ minLength: 1, maxLength: 100 }),
+            timestamp: fc.integer({ min: 1000000000000, max: 2000000000000 }),
+          }),
+          { minLength: 2, maxLength: 8 }
+        ),
+        async (messages) => {
+          resetStore();
+          
+          // 确保消息列表有效且包含 AI 消息
+          const modelMessageIndices = messages
+            .map((m, i) => ({ ...m, index: i }))
+            .filter(m => m.role === 'model')
+            .map(m => m.index);
+          
+          if (modelMessageIndices.length === 0) {
+            return; // 跳过没有 AI 消息的情况
+          }
+          
+          // 选择一个 AI 消息进行重新生成
+          const regenerateIndex = modelMessageIndices[0];
+          if (regenerateIndex === undefined || regenerateIndex === 0) {
+            return; // 跳过无效情况（AI 消息不能是第一条）
+          }
+          
+          const store = useChatWindowStore.getState();
+          
+          // 创建窗口
+          const chatWindow = store.createWindow();
+          const windowId = chatWindow.id;
+          const subTopicId = chatWindow.activeSubTopicId;
+          
+          // 设置初始消息
+          await store.updateSubTopic(windowId, subTopicId, {
+            messages: messages as Message[],
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, 10));
+          
+          // 获取当前状态
+          const currentState = useChatWindowStore.getState();
+          const currentWindow = currentState.windows.find(w => w.id === windowId);
+          if (!currentWindow) return;
+          
+          const subTopic = currentWindow.subTopics.find(st => st.id === subTopicId);
+          if (!subTopic) return;
+          
+          const messageToRegenerate = subTopic.messages[regenerateIndex];
+          if (!messageToRegenerate || messageToRegenerate.role !== 'model') return;
+          
+          // 计算预期的上下文消息（不包含被重新生成的消息）
+          const expectedContextMessages = subTopic.messages.slice(0, regenerateIndex);
+          
+          // 验证：上下文消息数量应该等于重新生成消息的索引
+          expect(expectedContextMessages.length).toBe(regenerateIndex);
+          
+          // 验证：上下文消息不包含被重新生成的消息
+          const contextMessageIds = expectedContextMessages.map(m => m.id);
+          expect(contextMessageIds).not.toContain(messageToRegenerate.id);
+          
+          // 验证：上下文消息保持原有顺序
+          for (let i = 0; i < expectedContextMessages.length; i++) {
+            expect(expectedContextMessages[i]?.id).toBe(messages[i]?.id);
+            expect(expectedContextMessages[i]?.content).toBe(messages[i]?.content);
+            expect(expectedContextMessages[i]?.role).toBe(messages[i]?.role);
+          }
+        }
+      ),
+      { numRuns: 20 }
+    );
+  }, 60000);
+
+  /**
+   * **Feature: comprehensive-enhancements, Property 7: 重新生成上下文一致性**
+   * 
+   * 验证上下文消息的完整性 - 所有在被重新生成消息之前的消息都应该被包含
+   */
+  it('Property 7: 重新生成上下文一致性 - 上下文包含所有前置消息', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        // 生成交替的用户和 AI 消息
+        fc.integer({ min: 1, max: 4 }).chain(pairCount => {
+          const pairs: fc.Arbitrary<{ id: string; role: 'user' | 'model'; content: string; timestamp: number }>[] = [];
+          for (let i = 0; i < pairCount; i++) {
+            pairs.push(
+              fc.record({
+                id: fc.constant(`user-${i}`),
+                role: fc.constant('user' as const),
+                content: fc.string({ minLength: 1, maxLength: 50 }),
+                timestamp: fc.constant(1000000000000 + i * 2),
+              })
+            );
+            pairs.push(
+              fc.record({
+                id: fc.constant(`model-${i}`),
+                role: fc.constant('model' as const),
+                content: fc.string({ minLength: 1, maxLength: 50 }),
+                timestamp: fc.constant(1000000000000 + i * 2 + 1),
+              })
+            );
+          }
+          return fc.tuple(...pairs);
+        }),
+        async (messagesTuple) => {
+          resetStore();
+          
+          const messages = Array.isArray(messagesTuple) ? messagesTuple : [messagesTuple];
+          
+          if (messages.length < 2) return;
+          
+          // 找到最后一个 AI 消息的索引
+          const lastModelIndex = messages.length - 1;
+          const lastMessage = messages[lastModelIndex];
+          if (!lastMessage || lastMessage.role !== 'model') return;
+          
+          const store = useChatWindowStore.getState();
+          
+          // 创建窗口
+          const chatWindow = store.createWindow();
+          const windowId = chatWindow.id;
+          const subTopicId = chatWindow.activeSubTopicId;
+          
+          // 设置初始消息
+          await store.updateSubTopic(windowId, subTopicId, {
+            messages: messages as Message[],
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, 10));
+          
+          // 获取当前状态
+          const currentState = useChatWindowStore.getState();
+          const currentWindow = currentState.windows.find(w => w.id === windowId);
+          if (!currentWindow) return;
+          
+          const subTopic = currentWindow.subTopics.find(st => st.id === subTopicId);
+          if (!subTopic) return;
+          
+          // 计算预期的上下文消息
+          const expectedContextMessages = subTopic.messages.slice(0, lastModelIndex);
+          
+          // 验证：上下文消息数量正确
+          expect(expectedContextMessages.length).toBe(lastModelIndex);
+          
+          // 验证：所有前置消息都被包含
+          for (let i = 0; i < lastModelIndex; i++) {
+            const expectedMsg = messages[i];
+            const actualMsg = expectedContextMessages[i];
+            expect(actualMsg?.id).toBe(expectedMsg?.id);
+            expect(actualMsg?.role).toBe(expectedMsg?.role);
+          }
+        }
+      ),
+      { numRuns: 20 }
+    );
+  }, 60000);
+
+  /**
+   * **Feature: comprehensive-enhancements, Property 8: 重新生成消息替换**
+   * 
+   * 对于任意重新生成操作，完成后消息 ID 应保持不变，但内容应更新为新响应
+   * 
+   * **Validates: Requirements 4.3**
+   */
+  it('Property 8: 重新生成消息替换 - 消息 ID 保持不变', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        // 生成消息列表
+        fc.array(
+          fc.record({
+            id: fc.string({ minLength: 5, maxLength: 20 }),
+            role: fc.constantFrom('user', 'model') as fc.Arbitrary<'user' | 'model'>,
+            content: fc.string({ minLength: 1, maxLength: 100 }),
+            timestamp: fc.integer({ min: 1000000000000, max: 2000000000000 }),
+          }),
+          { minLength: 2, maxLength: 8 }
+        ),
+        // 新的响应内容
+        fc.string({ minLength: 1, maxLength: 100 }),
+        async (messages, newContent) => {
+          resetStore();
+          
+          // 确保消息列表有效且包含 AI 消息
+          const modelMessageIndices = messages
+            .map((m, i) => ({ ...m, index: i }))
+            .filter(m => m.role === 'model')
+            .map(m => m.index);
+          
+          if (modelMessageIndices.length === 0) {
+            return; // 跳过没有 AI 消息的情况
+          }
+          
+          // 选择一个 AI 消息进行重新生成
+          const regenerateIndex = modelMessageIndices[0];
+          if (regenerateIndex === undefined || regenerateIndex === 0) {
+            return; // 跳过无效情况
+          }
+          
+          const store = useChatWindowStore.getState();
+          
+          // 创建窗口
+          const chatWindow = store.createWindow();
+          const windowId = chatWindow.id;
+          const subTopicId = chatWindow.activeSubTopicId;
+          
+          // 设置初始消息
+          await store.updateSubTopic(windowId, subTopicId, {
+            messages: messages as Message[],
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, 10));
+          
+          // 获取当前状态
+          const currentState = useChatWindowStore.getState();
+          const currentWindow = currentState.windows.find(w => w.id === windowId);
+          if (!currentWindow) return;
+          
+          const subTopic = currentWindow.subTopics.find(st => st.id === subTopicId);
+          if (!subTopic) return;
+          
+          const originalMessage = subTopic.messages[regenerateIndex];
+          if (!originalMessage || originalMessage.role !== 'model') return;
+          
+          const originalMessageId = originalMessage.id;
+          
+          // 模拟重新生成操作：更新消息内容但保持 ID 不变
+          const updatedMessage: Message = {
+            ...originalMessage,
+            content: newContent,
+            timestamp: Date.now(),
+          };
+          
+          const updatedMessages = [...subTopic.messages];
+          updatedMessages[regenerateIndex] = updatedMessage;
+          
+          await store.updateSubTopic(windowId, subTopicId, {
+            messages: updatedMessages,
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, 10));
+          
+          // 验证
+          const finalState = useChatWindowStore.getState();
+          const finalWindow = finalState.windows.find(w => w.id === windowId);
+          if (!finalWindow) return;
+          
+          const finalSubTopic = finalWindow.subTopics.find(st => st.id === subTopicId);
+          if (!finalSubTopic) return;
+          
+          const regeneratedMessage = finalSubTopic.messages[regenerateIndex];
+          
+          // 验证：消息 ID 保持不变
+          expect(regeneratedMessage?.id).toBe(originalMessageId);
+          
+          // 验证：消息内容已更新
+          expect(regeneratedMessage?.content).toBe(newContent);
+          
+          // 验证：消息角色保持不变
+          expect(regeneratedMessage?.role).toBe('model');
+        }
+      ),
+      { numRuns: 20 }
+    );
+  }, 60000);
+
+  /**
+   * **Feature: comprehensive-enhancements, Property 8: 重新生成消息替换**
+   * 
+   * 验证重新生成后其他消息保持不变
+   */
+  it('Property 8: 重新生成消息替换 - 其他消息保持不变', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        // 生成消息列表
+        fc.array(
+          fc.record({
+            id: fc.string({ minLength: 5, maxLength: 20 }),
+            role: fc.constantFrom('user', 'model') as fc.Arbitrary<'user' | 'model'>,
+            content: fc.string({ minLength: 1, maxLength: 100 }),
+            timestamp: fc.integer({ min: 1000000000000, max: 2000000000000 }),
+          }),
+          { minLength: 3, maxLength: 8 }
+        ),
+        // 新的响应内容
+        fc.string({ minLength: 1, maxLength: 100 }),
+        async (messages, newContent) => {
+          resetStore();
+          
+          // 确保消息列表有效且包含 AI 消息
+          const modelMessageIndices = messages
+            .map((m, i) => ({ ...m, index: i }))
+            .filter(m => m.role === 'model')
+            .map(m => m.index);
+          
+          if (modelMessageIndices.length === 0) {
+            return; // 跳过没有 AI 消息的情况
+          }
+          
+          // 选择一个 AI 消息进行重新生成
+          const regenerateIndex = modelMessageIndices[0];
+          if (regenerateIndex === undefined || regenerateIndex === 0) {
+            return; // 跳过无效情况
+          }
+          
+          const store = useChatWindowStore.getState();
+          
+          // 创建窗口
+          const chatWindow = store.createWindow();
+          const windowId = chatWindow.id;
+          const subTopicId = chatWindow.activeSubTopicId;
+          
+          // 设置初始消息
+          await store.updateSubTopic(windowId, subTopicId, {
+            messages: messages as Message[],
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, 10));
+          
+          // 获取当前状态并保存快照
+          const currentState = useChatWindowStore.getState();
+          const currentWindow = currentState.windows.find(w => w.id === windowId);
+          if (!currentWindow) return;
+          
+          const subTopic = currentWindow.subTopics.find(st => st.id === subTopicId);
+          if (!subTopic) return;
+          
+          // 保存所有消息的快照（除了要重新生成的消息）
+          const messagesSnapshot = subTopic.messages.map((m, i) => ({
+            index: i,
+            id: m.id,
+            role: m.role,
+            content: m.content,
+          }));
+          
+          const originalMessage = subTopic.messages[regenerateIndex];
+          if (!originalMessage || originalMessage.role !== 'model') return;
+          
+          // 模拟重新生成操作
+          const updatedMessage: Message = {
+            ...originalMessage,
+            content: newContent,
+            timestamp: Date.now(),
+          };
+          
+          const updatedMessages = [...subTopic.messages];
+          updatedMessages[regenerateIndex] = updatedMessage;
+          
+          await store.updateSubTopic(windowId, subTopicId, {
+            messages: updatedMessages,
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, 10));
+          
+          // 验证
+          const finalState = useChatWindowStore.getState();
+          const finalWindow = finalState.windows.find(w => w.id === windowId);
+          if (!finalWindow) return;
+          
+          const finalSubTopic = finalWindow.subTopics.find(st => st.id === subTopicId);
+          if (!finalSubTopic) return;
+          
+          // 验证：消息数量保持不变
+          expect(finalSubTopic.messages.length).toBe(messagesSnapshot.length);
+          
+          // 验证：除了重新生成的消息外，其他消息保持不变
+          for (let i = 0; i < messagesSnapshot.length; i++) {
+            const snapshot = messagesSnapshot[i];
+            const finalMsg = finalSubTopic.messages[i];
+            
+            if (i === regenerateIndex) {
+              // 重新生成的消息：ID 不变，内容更新
+              expect(finalMsg?.id).toBe(snapshot?.id);
+              expect(finalMsg?.content).toBe(newContent);
+            } else {
+              // 其他消息：完全不变
+              expect(finalMsg?.id).toBe(snapshot?.id);
+              expect(finalMsg?.role).toBe(snapshot?.role);
+              expect(finalMsg?.content).toBe(snapshot?.content);
+            }
+          }
+        }
+      ),
+      { numRuns: 20 }
+    );
+  }, 60000);
+});
+
+describe('Token 累计统计属性测试', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  /**
+   * 生成带有 Token 使用量的消息
+   */
+  const messageWithTokenUsageArb = fc.record({
+    id: fc.string({ minLength: 1, maxLength: 20 }),
+    role: fc.constantFrom('user', 'model') as fc.Arbitrary<'user' | 'model'>,
+    content: fc.string({ minLength: 1, maxLength: 100 }),
+    timestamp: fc.integer({ min: 1000000000000, max: 2000000000000 }),
+    tokenUsage: fc.option(
+      fc.record({
+        promptTokens: fc.nat(10000),
+        completionTokens: fc.nat(10000),
+      }).map(({ promptTokens, completionTokens }) => ({
+        promptTokens,
+        completionTokens,
+        totalTokens: promptTokens + completionTokens,
+      })),
+      { nil: undefined }
+    ),
+  });
+
+  /**
+   * **Feature: comprehensive-enhancements, Property 14: Token 累计计算**
+   * **Validates: Requirements 7.3**
+   * 
+   * *For any* 对话中的多条消息，累计 Token 数应该等于所有消息 Token 数的总和
+   */
+  it('Property 14: Token 累计计算 - 累计 Token 数等于所有消息 Token 数的总和', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(messageWithTokenUsageArb, { minLength: 1, maxLength: 10 }),
+        async (messages) => {
+          resetStore();
+          
+          const store = useChatWindowStore.getState();
+          
+          // 创建聊天窗口
+          const chatWindow = store.createWindow();
+          const windowId = chatWindow.id;
+          const subTopicId = chatWindow.activeSubTopicId;
+          
+          // 设置消息
+          await store.updateSubTopic(windowId, subTopicId, {
+            messages: messages as Message[],
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, 10));
+          
+          // 计算期望的累计 Token 数
+          let expectedPromptTokens = 0;
+          let expectedCompletionTokens = 0;
+          
+          for (const msg of messages) {
+            if (msg.tokenUsage) {
+              expectedPromptTokens += msg.tokenUsage.promptTokens;
+              expectedCompletionTokens += msg.tokenUsage.completionTokens;
+            }
+          }
+          
+          // 获取累计 Token 使用量
+          const totalUsage = useChatWindowStore.getState().getTotalTokenUsage(windowId, subTopicId);
+          
+          // 验证
+          expect(totalUsage.promptTokens).toBe(expectedPromptTokens);
+          expect(totalUsage.completionTokens).toBe(expectedCompletionTokens);
+          expect(totalUsage.totalTokens).toBe(expectedPromptTokens + expectedCompletionTokens);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  }, 60000);
+
+  /**
+   * **Feature: comprehensive-enhancements, Property 14: Token 累计计算**
+   * **Validates: Requirements 7.3**
+   * 
+   * 空消息列表应返回零值
+   */
+  it('Property 14: Token 累计计算 - 空消息列表返回零值', () => {
+    resetStore();
+    
+    const store = useChatWindowStore.getState();
+    
+    // 创建聊天窗口（默认空消息列表）
+    const chatWindow = store.createWindow();
+    const windowId = chatWindow.id;
+    const subTopicId = chatWindow.activeSubTopicId;
+    
+    // 获取累计 Token 使用量
+    const totalUsage = store.getTotalTokenUsage(windowId, subTopicId);
+    
+    // 验证
+    expect(totalUsage.promptTokens).toBe(0);
+    expect(totalUsage.completionTokens).toBe(0);
+    expect(totalUsage.totalTokens).toBe(0);
+  });
+
+  /**
+   * **Feature: comprehensive-enhancements, Property 14: Token 累计计算**
+   * **Validates: Requirements 7.3**
+   * 
+   * 不存在的窗口或子话题应返回零值
+   */
+  it('Property 14: Token 累计计算 - 不存在的窗口或子话题返回零值', () => {
+    resetStore();
+    
+    const store = useChatWindowStore.getState();
+    
+    // 获取不存在的窗口的 Token 使用量
+    const totalUsage = store.getTotalTokenUsage('non-existent-window', 'non-existent-subtopic');
+    
+    // 验证
+    expect(totalUsage.promptTokens).toBe(0);
+    expect(totalUsage.completionTokens).toBe(0);
+    expect(totalUsage.totalTokens).toBe(0);
+  });
+
+  /**
+   * **Feature: comprehensive-enhancements, Property 14: Token 累计计算**
+   * **Validates: Requirements 7.3**
+   * 
+   * 混合有无 tokenUsage 的消息应正确累计
+   */
+  it('Property 14: Token 累计计算 - 混合有无 tokenUsage 的消息正确累计', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(
+          fc.record({
+            id: fc.string({ minLength: 1, maxLength: 20 }),
+            role: fc.constantFrom('user', 'model') as fc.Arbitrary<'user' | 'model'>,
+            content: fc.string({ minLength: 1, maxLength: 100 }),
+            timestamp: fc.integer({ min: 1000000000000, max: 2000000000000 }),
+          }),
+          { minLength: 1, maxLength: 5 }
+        ),
+        fc.array(
+          fc.record({
+            id: fc.string({ minLength: 1, maxLength: 20 }),
+            role: fc.constantFrom('user', 'model') as fc.Arbitrary<'user' | 'model'>,
+            content: fc.string({ minLength: 1, maxLength: 100 }),
+            timestamp: fc.integer({ min: 1000000000000, max: 2000000000000 }),
+            tokenUsage: fc.record({
+              promptTokens: fc.nat(10000),
+              completionTokens: fc.nat(10000),
+            }).map(({ promptTokens, completionTokens }) => ({
+              promptTokens,
+              completionTokens,
+              totalTokens: promptTokens + completionTokens,
+            })),
+          }),
+          { minLength: 1, maxLength: 5 }
+        ),
+        async (messagesWithoutUsage, messagesWithUsage) => {
+          resetStore();
+          
+          const store = useChatWindowStore.getState();
+          
+          // 创建聊天窗口
+          const chatWindow = store.createWindow();
+          const windowId = chatWindow.id;
+          const subTopicId = chatWindow.activeSubTopicId;
+          
+          // 混合消息
+          const allMessages = [...messagesWithoutUsage, ...messagesWithUsage] as Message[];
+          
+          // 设置消息
+          await store.updateSubTopic(windowId, subTopicId, {
+            messages: allMessages,
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, 10));
+          
+          // 计算期望的累计 Token 数（只计算有 tokenUsage 的消息）
+          let expectedPromptTokens = 0;
+          let expectedCompletionTokens = 0;
+          
+          for (const msg of messagesWithUsage) {
+            expectedPromptTokens += msg.tokenUsage.promptTokens;
+            expectedCompletionTokens += msg.tokenUsage.completionTokens;
+          }
+          
+          // 获取累计 Token 使用量
+          const totalUsage = useChatWindowStore.getState().getTotalTokenUsage(windowId, subTopicId);
+          
+          // 验证
+          expect(totalUsage.promptTokens).toBe(expectedPromptTokens);
+          expect(totalUsage.completionTokens).toBe(expectedCompletionTokens);
+          expect(totalUsage.totalTokens).toBe(expectedPromptTokens + expectedCompletionTokens);
+        }
+      ),
+      { numRuns: 50 }
+    );
+  }, 60000);
+});

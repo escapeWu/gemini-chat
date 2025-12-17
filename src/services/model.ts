@@ -661,3 +661,70 @@ export function mergeModels(
   // 转换为数组并返回
   return Array.from(resultMap.values());
 }
+
+
+// ============ 新模型默认禁用 ============
+
+/**
+ * 为新模型设置默认禁用状态
+ * 需求: 4.3, 4.4
+ * 
+ * 处理规则：
+ * - 如果模型 ID 已存在于现有列表中，保持原有的 enabled 状态（返回 undefined）
+ * - 如果是新模型（不在现有列表中），设置 enabled 为 false
+ * 
+ * @param remoteModels - 远程获取的模型列表
+ * @param existingModelIds - 现有模型 ID 集合
+ * @returns 处理后的模型列表
+ */
+export function setNewModelsDisabled(
+  remoteModels: ModelConfig[],
+  existingModelIds: Set<string>
+): ModelConfig[] {
+  return remoteModels.map(model => ({
+    ...model,
+    // 如果是新模型（不在现有列表中），默认禁用
+    enabled: existingModelIds.has(model.id) ? undefined : false,
+  }));
+}
+
+// ============ 模型过滤和排序 ============
+
+/**
+ * 获取启用的模型列表
+ * 需求: 4.2
+ * 
+ * 过滤规则：
+ * - enabled 为 true 或 undefined 的模型被视为启用
+ * - enabled 为 false 的模型被过滤掉
+ * 
+ * @param models - 所有模型配置列表
+ * @returns 启用的模型列表
+ */
+export function getEnabledModels(models: ModelConfig[]): ModelConfig[] {
+  return models.filter(model => model.enabled !== false);
+}
+
+/**
+ * 对模型列表进行排序
+ * 需求: 4.6
+ * 
+ * 排序规则：
+ * - 启用的模型（enabled !== false）排在前面
+ * - 禁用的模型（enabled === false）排在后面
+ * - 同一组内保持原有顺序
+ * 
+ * @param models - 所有模型配置列表
+ * @returns 排序后的模型列表
+ */
+export function sortModels(models: ModelConfig[]): ModelConfig[] {
+  return [...models].sort((a, b) => {
+    const aEnabled = a.enabled !== false;
+    const bEnabled = b.enabled !== false;
+    
+    // 启用的模型在前
+    if (aEnabled && !bEnabled) return -1;
+    if (!aEnabled && bEnabled) return 1;
+    return 0;
+  });
+}

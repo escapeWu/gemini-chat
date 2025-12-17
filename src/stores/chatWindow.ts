@@ -1,6 +1,6 @@
 /**
  * 聊天窗口状态管理
- * 需求: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 5.1, 5.2, 5.3
+ * 需求: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 5.1, 5.2, 5.3, 2.2, 2.4
  */
 
 import { create } from 'zustand';
@@ -21,8 +21,15 @@ import {
   getAllChatWindows,
   deleteChatWindow as deleteChatWindowFromStorage,
 } from '../services/storage';
-import { sendMessageNonStreaming as sendGeminiMessageNonStreaming, sendMessageWithThoughts, GeminiApiError } from '../services/gemini';
+import { 
+  sendMessageNonStreaming as sendGeminiMessageNonStreaming, 
+  sendMessageWithThoughts, 
+  GeminiApiError, 
+  GeminiRequestCancelledWithThoughtsError,
+  type ImageExtractionResult 
+} from '../services/gemini';
 import { useModelStore } from './model';
+import { storeLogger } from '../services/logger';
 
 // ============ 工具函数 ============
 
@@ -89,6 +96,8 @@ interface ChatWindowState {
   streamingText: string;
   /** 是否已初始化 */
   initialized: boolean;
+  /** 当前请求的 AbortController - 需求: 5.1, 5.2 */
+  currentRequestController: AbortController | null;
 }
 
 // ============ Store 操作接口 ============
@@ -149,6 +158,32 @@ interface ChatWindowActions {
   // 排序操作
   /** 重新排序窗口列表 */
   reorderWindows: (windows: ChatWindow[]) => Promise<void>;
+  
+  // 请求取消操作
+  // 需求: 5.1, 5.2, 5.3, 5.4
+  /** 取消当前请求 */
+  cancelRequest: () => void;
+  
+  // 消息编辑和重新生成操作
+  // 需求: 3.2, 4.1, 4.3
+  /** 编辑消息（删除后续消息并重新发送） */
+  editMessage: (
+    windowId: string,
+    subTopicId: string,
+    messageId: string,
+    newContent: string
+  ) => Promise<void>;
+  /** 重新生成 AI 消息 */
+  regenerateMessage: (
+    windowId: string,
+    subTopicId: string,
+    messageId: string
+  ) => Promise<void>;
+  
+  // Token 统计操作
+  // 需求: 7.3
+  /** 获取当前对话的累计 Token 使用量 */
+  getTotalTokenUsage: (windowId: string, subTopicId: string) => import('../types/models').MessageTokenUsage;
 }
 
 // ============ Store 类型 ============
@@ -169,20 +204,24 @@ export const useChatWindowStore = create<ChatWindowStore>((set, get) => ({
   error: null,
   streamingText: '',
   initialized: false,
+  currentRequestController: null,
 
   // 从存储加载所有窗口
   // 需求: 4.6
   loadWindows: async () => {
+    storeLogger.info('开始加载聊天窗口');
     set({ isLoading: true, error: null });
     try {
       const windows = await getAllChatWindows();
+      storeLogger.info('聊天窗口加载完成', { count: windows.length });
       set({
         windows,
         initialized: true,
         isLoading: false,
       });
     } catch (error) {
-      console.error('加载聊天窗口失败:', error);
+      // 需求: 2.4 - 输出错误日志
+      storeLogger.error('加载聊天窗口失败', { error: error instanceof Error ? error.message : '未知错误' });
       set({
         error: error instanceof Error ? error.message : '加载聊天窗口失败',
         initialized: true,
@@ -605,6 +644,9 @@ export const useChatWindowStore = create<ChatWindowStore>((set, get) => ({
       updatedAt: Date.now(),
     };
 
+    // 创建 AbortController 用于取消请求 - 需求: 5.1, 5.2
+    const abortController = new AbortController();
+
     set((state) => ({
       windows: state.windows.map((w) =>
         w.id === windowId ? updatedWindow : w
@@ -612,6 +654,7 @@ export const useChatWindowStore = create<ChatWindowStore>((set, get) => ({
       isSending: true,
       error: null,
       streamingText: '',
+      currentRequestController: abortController,
     }));
 
     // 保存窗口
@@ -628,17 +671,20 @@ export const useChatWindowStore = create<ChatWindowStore>((set, get) => ({
 
       // 如果没有提供完整的 API 配置，从 settings 获取
       // 同时获取流式设置
-      // 需求: 10.3, 10.4
-      let streamingEnabled = true; // 默认启用流式
+      // 需求: 10.3, 10.4, 1.3, 1.4
+      const { useSettingsStore } = await import('./settings');
+      const settingsState = useSettingsStore.getState();
+      
       if (!effectiveApiConfig.endpoint || !effectiveApiConfig.apiKey) {
-        // 这里需要从外部获取，暂时使用默认值
-        // 实际使用时应该从 useSettingsStore 获取
-        const { useSettingsStore } = await import('./settings');
-        const settingsState = useSettingsStore.getState();
         effectiveApiConfig.endpoint = settingsState.apiEndpoint;
         effectiveApiConfig.apiKey = settingsState.apiKey;
-        streamingEnabled = settingsState.streamingEnabled;
       }
+      
+      // 使用流式设置解析函数，实现对话设置优先逻辑
+      // 需求: 1.3 - 对话设置优先
+      // 需求: 1.4 - 回退到全局设置
+      const { resolveStreamingEnabled } = await import('../services/streaming');
+      const streamingEnabled = resolveStreamingEnabled(window.config, settingsState.getFullSettings());
 
       // 获取模型的有效高级参数配置
       const effectiveAdvancedConfig = advancedConfig || useModelStore.getState().getEffectiveConfig(window.config.model);
@@ -652,9 +698,14 @@ export const useChatWindowStore = create<ChatWindowStore>((set, get) => ({
       // 需求: 4.3 - 解析并保存思维链内容
       let fullResponse = '';
       let thoughtSummary: string | undefined;
+      let generatedImages: ImageExtractionResult[] | undefined;
+      // 需求: 8.2, 8.3, 8.4 - 耗时数据
+      let duration: number | undefined;
+      let ttfb: number | undefined;
       
       if (streamingEnabled) {
         // 流式响应（支持思维链提取）
+        // 需求: 5.2 - 传递 AbortSignal 用于取消请求
         const result = await sendMessageWithThoughts(
           geminiContents,
           effectiveApiConfig,
@@ -665,10 +716,15 @@ export const useChatWindowStore = create<ChatWindowStore>((set, get) => ({
             fullResponse += chunk;
             set({ streamingText: fullResponse });
           },
-          effectiveAdvancedConfig
+          effectiveAdvancedConfig,
+          abortController.signal
         );
         fullResponse = result.text;
         thoughtSummary = result.thoughtSummary;
+        generatedImages = result.images;
+        // 需求: 8.4 - 保存耗时数据
+        duration = result.duration;
+        ttfb = result.ttfb;
       } else {
         // 非流式响应
         fullResponse = await sendGeminiMessageNonStreaming(
@@ -680,15 +736,34 @@ export const useChatWindowStore = create<ChatWindowStore>((set, get) => ({
           effectiveAdvancedConfig
         );
       }
+      
+      // 保存生成的图片到图片库 - 需求: 2.7
+      if (generatedImages && generatedImages.length > 0) {
+        const { useImageStore } = await import('./image');
+        const { createGeneratedImage } = await import('../types');
+        const imageStore = useImageStore.getState();
+        
+        for (const imageData of generatedImages) {
+          const image = createGeneratedImage(imageData.data, imageData.mimeType, {
+            windowId,
+            messageId: generateId(), // 将在下面创建的 AI 消息 ID
+            prompt: content, // 用户的提示词
+          });
+          await imageStore.addImage(image);
+        }
+      }
 
-      // 创建 AI 响应消息（包含思维链摘要）
-      // 需求: 4.3
+      // 创建 AI 响应消息（包含思维链摘要和耗时数据）
+      // 需求: 4.3, 8.4
       const aiMessage: Message = {
         id: generateId(),
         role: 'model',
         content: fullResponse,
         timestamp: Date.now(),
         thoughtSummary,
+        // 需求: 8.4 - 保存耗时数据
+        duration,
+        ttfb,
       };
 
       // 更新子话题消息
@@ -714,12 +789,72 @@ export const useChatWindowStore = create<ChatWindowStore>((set, get) => ({
         ),
         isSending: false,
         streamingText: '',
+        currentRequestController: null,
       }));
 
       // 保存窗口
       await saveChatWindow(finalWindow);
     } catch (error) {
-      console.error('发送消息失败:', error);
+      // 需求: 5.3, 5.4 - 处理请求取消，保留部分响应
+      if (error instanceof GeminiRequestCancelledWithThoughtsError) {
+        storeLogger.info('请求已取消，保存部分响应', {
+          partialResponseLength: error.partialResponse.length,
+          windowId,
+          subTopicId,
+        });
+
+        // 如果有部分响应，保存为消息
+        if (error.partialResponse.length > 0) {
+          const partialAiMessage: Message = {
+            id: generateId(),
+            role: 'model',
+            content: error.partialResponse,
+            timestamp: Date.now(),
+            thoughtSummary: error.partialThought || undefined,
+          };
+
+          const cancelledSubTopic: SubTopic = {
+            ...updatedSubTopic,
+            messages: [...messagesWithUser, partialAiMessage],
+            updatedAt: Date.now(),
+          };
+
+          const cancelledSubTopics = updatedWindow.subTopics.map((st) =>
+            st.id === subTopicId ? cancelledSubTopic : st
+          );
+
+          const cancelledWindow: ChatWindow = {
+            ...updatedWindow,
+            subTopics: cancelledSubTopics,
+            updatedAt: Date.now(),
+          };
+
+          set((state) => ({
+            windows: state.windows.map((w) =>
+              w.id === windowId ? cancelledWindow : w
+            ),
+            isSending: false,
+            streamingText: '',
+            currentRequestController: null,
+          }));
+
+          await saveChatWindow(cancelledWindow);
+        } else {
+          set({
+            isSending: false,
+            streamingText: '',
+            currentRequestController: null,
+          });
+        }
+        return;
+      }
+
+      // 需求: 2.4 - 输出错误日志
+      storeLogger.error('发送消息失败', { 
+        error: error instanceof Error ? error.message : '未知错误',
+        windowId,
+        subTopicId,
+      });
       
       let errorMessage = '发送消息失败';
       if (error instanceof GeminiApiError) {
@@ -732,6 +867,7 @@ export const useChatWindowStore = create<ChatWindowStore>((set, get) => ({
         isSending: false,
         error: errorMessage,
         streamingText: '',
+        currentRequestController: null,
       });
     }
   },
@@ -777,5 +913,363 @@ export const useChatWindowStore = create<ChatWindowStore>((set, get) => ({
     } catch (error) {
       console.error('保存窗口排序失败:', error);
     }
+  },
+
+  // 取消当前请求
+  // 需求: 5.1, 5.2 - 取消正在进行的 API 请求
+  cancelRequest: () => {
+    const state = get();
+    if (state.currentRequestController) {
+      storeLogger.info('取消当前请求');
+      state.currentRequestController.abort();
+      // 注意：不在这里清除 controller，让 sendMessage 的 catch 块处理
+    }
+  },
+
+  // 编辑消息
+  // 需求: 3.2 - 编辑后删除后续消息并重新发送
+  editMessage: async (
+    windowId: string,
+    subTopicId: string,
+    messageId: string,
+    newContent: string
+  ) => {
+    const state = get();
+    const window = state.windows.find((w) => w.id === windowId);
+    
+    if (!window) {
+      set({ error: '窗口不存在' });
+      return;
+    }
+
+    const subTopic = window.subTopics.find((st) => st.id === subTopicId);
+    if (!subTopic) {
+      set({ error: '子话题不存在' });
+      return;
+    }
+
+    // 找到要编辑的消息索引
+    const messageIndex = subTopic.messages.findIndex((m) => m.id === messageId);
+    if (messageIndex === -1) {
+      set({ error: '消息不存在' });
+      return;
+    }
+
+    const originalMessage = subTopic.messages[messageIndex];
+    if (!originalMessage || originalMessage.role !== 'user') {
+      set({ error: '只能编辑用户消息' });
+      return;
+    }
+
+    // 截断消息列表，删除该消息之后的所有消息
+    // 需求: 3.2 - Property 5: 消息编辑后截断
+    const truncatedMessages = subTopic.messages.slice(0, messageIndex);
+
+    // 更新子话题
+    const updatedSubTopic: SubTopic = {
+      ...subTopic,
+      messages: truncatedMessages,
+      updatedAt: Date.now(),
+    };
+
+    const updatedSubTopics = window.subTopics.map((st) =>
+      st.id === subTopicId ? updatedSubTopic : st
+    );
+
+    const updatedWindow: ChatWindow = {
+      ...window,
+      subTopics: updatedSubTopics,
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      windows: state.windows.map((w) =>
+        w.id === windowId ? updatedWindow : w
+      ),
+    }));
+
+    // 保存窗口
+    await saveChatWindow(updatedWindow);
+
+    // 重新发送编辑后的消息
+    const { useSettingsStore } = await import('./settings');
+    const settingsState = useSettingsStore.getState();
+    
+    await get().sendMessage(
+      windowId,
+      subTopicId,
+      newContent,
+      originalMessage.attachments,
+      {
+        endpoint: settingsState.apiEndpoint,
+        apiKey: settingsState.apiKey,
+        model: window.config.model,
+      }
+    );
+  },
+
+  // 重新生成 AI 消息
+  // 需求: 4.1, 4.3 - 使用相同上下文重新请求，保持消息 ID 不变
+  regenerateMessage: async (
+    windowId: string,
+    subTopicId: string,
+    messageId: string
+  ) => {
+    const state = get();
+    const window = state.windows.find((w) => w.id === windowId);
+    
+    if (!window) {
+      set({ error: '窗口不存在' });
+      return;
+    }
+
+    const subTopic = window.subTopics.find((st) => st.id === subTopicId);
+    if (!subTopic) {
+      set({ error: '子话题不存在' });
+      return;
+    }
+
+    // 找到要重新生成的消息索引
+    const messageIndex = subTopic.messages.findIndex((m) => m.id === messageId);
+    if (messageIndex === -1) {
+      set({ error: '消息不存在' });
+      return;
+    }
+
+    const originalMessage = subTopic.messages[messageIndex];
+    if (!originalMessage || originalMessage.role !== 'model') {
+      set({ error: '只能重新生成 AI 消息' });
+      return;
+    }
+
+    // 获取该消息之前的所有消息作为上下文
+    // 需求: 4.1 - Property 7: 重新生成上下文一致性
+    const contextMessages = subTopic.messages.slice(0, messageIndex);
+
+    // 创建 AbortController 用于取消请求 - 需求: 5.1, 5.2
+    const abortController = new AbortController();
+
+    set({ isSending: true, error: null, streamingText: '', currentRequestController: abortController });
+
+    try {
+      // 获取 API 配置
+      const { useSettingsStore } = await import('./settings');
+      const settingsState = useSettingsStore.getState();
+      
+      const effectiveApiConfig: ApiConfig = {
+        endpoint: settingsState.apiEndpoint,
+        apiKey: settingsState.apiKey,
+        model: window.config.model,
+      };
+
+      // 获取流式设置
+      const { resolveStreamingEnabled } = await import('../services/streaming');
+      const streamingEnabled = resolveStreamingEnabled(window.config, settingsState.getFullSettings());
+
+      // 获取模型的有效高级参数配置
+      const effectiveAdvancedConfig = useModelStore.getState().getEffectiveConfig(window.config.model);
+
+      // 转换消息为 Gemini API 格式
+      const geminiContents = messagesToGeminiContents(contextMessages);
+
+      let fullResponse = '';
+      let thoughtSummary: string | undefined;
+      // 需求: 8.2, 8.3, 8.4 - 耗时数据
+      let duration: number | undefined;
+      let ttfb: number | undefined;
+
+      if (streamingEnabled) {
+        // 需求: 5.2 - 传递 AbortSignal 用于取消请求
+        const result = await sendMessageWithThoughts(
+          geminiContents,
+          effectiveApiConfig,
+          window.config.generationConfig,
+          window.config.safetySettings,
+          window.config.systemInstruction,
+          (chunk) => {
+            fullResponse += chunk;
+            set({ streamingText: fullResponse });
+          },
+          effectiveAdvancedConfig,
+          abortController.signal
+        );
+        fullResponse = result.text;
+        thoughtSummary = result.thoughtSummary;
+        // 需求: 8.4 - 保存耗时数据
+        duration = result.duration;
+        ttfb = result.ttfb;
+      } else {
+        fullResponse = await sendGeminiMessageNonStreaming(
+          geminiContents,
+          effectiveApiConfig,
+          window.config.generationConfig,
+          window.config.safetySettings,
+          window.config.systemInstruction,
+          effectiveAdvancedConfig
+        );
+      }
+
+      // 更新消息内容，保持 ID 不变
+      // 需求: 4.3, 8.4 - Property 8: 重新生成消息替换
+      const updatedMessage: Message = {
+        ...originalMessage,
+        content: fullResponse,
+        timestamp: Date.now(),
+        thoughtSummary,
+        // 需求: 8.4 - 保存耗时数据
+        duration,
+        ttfb,
+      };
+
+      const updatedMessages = [...subTopic.messages];
+      updatedMessages[messageIndex] = updatedMessage;
+
+      const finalSubTopic: SubTopic = {
+        ...subTopic,
+        messages: updatedMessages,
+        updatedAt: Date.now(),
+      };
+
+      const finalSubTopics = window.subTopics.map((st) =>
+        st.id === subTopicId ? finalSubTopic : st
+      );
+
+      const finalWindow: ChatWindow = {
+        ...window,
+        subTopics: finalSubTopics,
+        updatedAt: Date.now(),
+      };
+
+      set((state) => ({
+        windows: state.windows.map((w) =>
+          w.id === windowId ? finalWindow : w
+        ),
+        isSending: false,
+        streamingText: '',
+        currentRequestController: null,
+      }));
+
+      await saveChatWindow(finalWindow);
+    } catch (error) {
+      // 需求: 5.3, 5.4 - 处理请求取消，保留部分响应
+      if (error instanceof GeminiRequestCancelledWithThoughtsError) {
+        storeLogger.info('重新生成请求已取消，保存部分响应', {
+          partialResponseLength: error.partialResponse.length,
+          windowId,
+          subTopicId,
+          messageId,
+        });
+
+        // 如果有部分响应，更新消息内容
+        if (error.partialResponse.length > 0) {
+          const partialUpdatedMessage: Message = {
+            ...originalMessage,
+            content: error.partialResponse,
+            timestamp: Date.now(),
+            thoughtSummary: error.partialThought || undefined,
+          };
+
+          const partialUpdatedMessages = [...subTopic.messages];
+          partialUpdatedMessages[messageIndex] = partialUpdatedMessage;
+
+          const partialFinalSubTopic: SubTopic = {
+            ...subTopic,
+            messages: partialUpdatedMessages,
+            updatedAt: Date.now(),
+          };
+
+          const partialFinalSubTopics = window.subTopics.map((st) =>
+            st.id === subTopicId ? partialFinalSubTopic : st
+          );
+
+          const partialFinalWindow: ChatWindow = {
+            ...window,
+            subTopics: partialFinalSubTopics,
+            updatedAt: Date.now(),
+          };
+
+          set((state) => ({
+            windows: state.windows.map((w) =>
+              w.id === windowId ? partialFinalWindow : w
+            ),
+            isSending: false,
+            streamingText: '',
+            currentRequestController: null,
+          }));
+
+          await saveChatWindow(partialFinalWindow);
+        } else {
+          // 没有部分响应，保留原消息
+          set({
+            isSending: false,
+            streamingText: '',
+            currentRequestController: null,
+          });
+        }
+        return;
+      }
+
+      storeLogger.error('重新生成消息失败', {
+        error: error instanceof Error ? error.message : '未知错误',
+        windowId,
+        subTopicId,
+        messageId,
+      });
+
+      let errorMessage = '重新生成失败';
+      if (error instanceof GeminiApiError) {
+        errorMessage = error.message;
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+
+      // 需求: 4.4 - 重新生成失败时保留原消息
+      set({
+        isSending: false,
+        error: errorMessage,
+        streamingText: '',
+        currentRequestController: null,
+      });
+    }
+  },
+
+  // 获取当前对话的累计 Token 使用量
+  // 需求: 7.3 - Property 14: Token 累计计算
+  getTotalTokenUsage: (windowId: string, subTopicId: string) => {
+    const state = get();
+    const window = state.windows.find((w) => w.id === windowId);
+    
+    // 默认返回零值
+    const defaultUsage = {
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+    };
+    
+    if (!window) {
+      return defaultUsage;
+    }
+
+    const subTopic = window.subTopics.find((st) => st.id === subTopicId);
+    if (!subTopic) {
+      return defaultUsage;
+    }
+
+    // 累计所有消息的 Token 使用量
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
+
+    for (const message of subTopic.messages) {
+      if (message.tokenUsage) {
+        totalPromptTokens += message.tokenUsage.promptTokens || 0;
+        totalCompletionTokens += message.tokenUsage.completionTokens || 0;
+      }
+    }
+
+    return {
+      promptTokens: totalPromptTokens,
+      completionTokens: totalCompletionTokens,
+      totalTokens: totalPromptTokens + totalCompletionTokens,
+    };
   },
 }));

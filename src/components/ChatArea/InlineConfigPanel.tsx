@@ -10,6 +10,7 @@ import type { ChatWindowConfig } from '../../types/chatWindow';
 import type { ModelConfig, ThinkingLevel, ModelAdvancedConfig } from '../../types/models';
 import { getModelCapabilities } from '../../types/models';
 import { useModelStore } from '../../stores/model';
+import { getEnabledModels } from '../../services/model';
 import { useReducedMotion } from '../motion';
 import { durationValues, easings, touchTargets } from '../../design/tokens';
 import { ThinkingLevelSelector } from '../ModelParams/ThinkingLevelSelector';
@@ -44,6 +45,7 @@ function ModelSelector({ currentModel, models, onChange }: ModelSelectorProps) {
       <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
         模型
       </label>
+      {/* 需求 2.1: 使用模型的原始 ID 作为主要显示名称 */}
       <select
         value={currentModel}
         onChange={(e) => onChange(e.target.value)}
@@ -53,12 +55,12 @@ function ModelSelector({ currentModel, models, onChange }: ModelSelectorProps) {
           bg-white dark:bg-neutral-800
           text-neutral-900 dark:text-neutral-100
           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent
-          text-sm
+          text-sm font-mono
         "
       >
         {models.map((model) => (
           <option key={model.id} value={model.id}>
-            {model.name}
+            {model.id}
           </option>
         ))}
       </select>
@@ -192,8 +194,9 @@ export function InlineConfigPanel({
   const [panelHeight, setPanelHeight] = useState(0);
 
   // 获取当前模型信息
+  // 需求 2.1: 使用模型的原始 ID 作为主要显示名称
   const currentModelInfo = models.find((m) => m.id === config.model);
-  const modelName = currentModelInfo?.name || config.model;
+  const modelName = config.model;
 
   // 计算面板高度用于动画
   useEffect(() => {
@@ -330,10 +333,10 @@ export function InlineConfigPanel({
         }}
       >
         <div ref={panelRef} className="px-4 pb-4 space-y-4">
-          {/* 模型选择 */}
+          {/* 模型选择 - 需求: 4.2 只显示启用的模型 */}
           <ModelSelector
             currentModel={config.model}
-            models={models}
+            models={getEnabledModels(models)}
             onChange={handleModelChange}
           />
 

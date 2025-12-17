@@ -10,6 +10,7 @@
 
 import { useState, useMemo } from 'react';
 import type { ModelConfig } from '../types/models';
+import { sortModels } from '../services/model';
 
 // ============ 类型定义 ============
 
@@ -24,6 +25,8 @@ interface ModelListProps {
   onEditModel?: (model: ModelConfig) => void;
   /** 删除模型回调 */
   onDeleteModel?: (modelId: string) => void;
+  /** 切换模型启用状态回调 - 需求: 4.1, 4.5 */
+  onToggleEnabled?: (modelId: string, enabled: boolean) => void;
 }
 
 // ============ 辅助函数 ============
@@ -66,15 +69,16 @@ export function ModelList({
   onSelectModel,
   onEditModel,
   onDeleteModel,
+  onToggleEnabled,
 }: ModelListProps) {
   // 搜索关键词
   const [searchQuery, setSearchQuery] = useState('');
   // 筛选条件
   const [filterSource, setFilterSource] = useState<'all' | 'preset' | 'custom'>('all');
 
-  // 过滤后的模型列表
+  // 过滤并排序后的模型列表 - 需求: 4.6
   const filteredModels = useMemo(() => {
-    return models.filter(model => {
+    const filtered = models.filter(model => {
       // 搜索过滤
       const query = searchQuery.toLowerCase().trim();
       if (query) {
@@ -96,6 +100,9 @@ export function ModelList({
 
       return true;
     });
+    
+    // 排序：启用的模型在前，禁用的在后
+    return sortModels(filtered);
   }, [models, searchQuery, filterSource]);
 
   return (
@@ -153,6 +160,7 @@ export function ModelList({
               onSelect={onSelectModel}
               onEdit={onEditModel}
               onDelete={onDeleteModel}
+              onToggleEnabled={onToggleEnabled}
             />
           ))
         )}
@@ -169,6 +177,8 @@ interface ModelListItemProps {
   onSelect?: (model: ModelConfig) => void;
   onEdit?: (model: ModelConfig) => void;
   onDelete?: (modelId: string) => void;
+  /** 切换模型启用状态回调 - 需求: 4.1, 4.5 */
+  onToggleEnabled?: (modelId: string, enabled: boolean) => void;
 }
 
 function ModelListItem({
@@ -177,9 +187,11 @@ function ModelListItem({
   onSelect,
   onEdit,
   onDelete,
+  onToggleEnabled,
 }: ModelListItemProps) {
   const sourceLabel = getModelSourceLabel(model);
   const capabilityTags = getCapabilityTags(model);
+  const isEnabled = model.enabled !== false;
 
   return (
     <div
@@ -189,15 +201,17 @@ function ModelListItem({
           ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
           : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50'
         }
+        ${!isEnabled ? 'opacity-60' : ''}
       `}
       onClick={() => onSelect?.(model)}
     >
       <div className="flex items-start justify-between gap-3">
-        {/* 模型信息 */}
+        {/* 模型信息 - 需求: 2.1, 2.2 */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium text-slate-900 dark:text-slate-100 truncate">
-              {model.name}
+            {/* 主显示名称使用 model.id - 需求: 2.1 */}
+            <span className="font-medium text-slate-900 dark:text-slate-100 truncate font-mono">
+              {model.id}
             </span>
             {/* 来源标签 */}
             <span className={`px-2 py-0.5 text-xs rounded-full ${sourceLabel.color}`}>
@@ -205,12 +219,7 @@ function ModelListItem({
             </span>
           </div>
           
-          {/* 模型 ID */}
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono truncate">
-            {model.id}
-          </div>
-          
-          {/* 描述 */}
+          {/* 描述信息 - 需求: 2.2 */}
           {model.description && (
             <div className="text-sm text-slate-600 dark:text-slate-300 mt-1 line-clamp-2">
               {model.description}
@@ -242,7 +251,33 @@ function ModelListItem({
         </div>
 
         {/* 操作按钮 */}
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* 启用/禁用开关 - 需求: 4.1, 4.5 */}
+          {onToggleEnabled && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleEnabled(model.id, !isEnabled);
+              }}
+              className={`
+                relative inline-flex h-5 w-9 items-center rounded-full transition-colors
+                ${isEnabled 
+                  ? 'bg-green-500' 
+                  : 'bg-slate-300 dark:bg-slate-600'}
+              `}
+              role="switch"
+              aria-checked={isEnabled}
+              aria-label={isEnabled ? '禁用模型' : '启用模型'}
+              title={isEnabled ? '点击禁用' : '点击启用'}
+            >
+              <span
+                className={`
+                  inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm
+                  ${isEnabled ? 'translate-x-5' : 'translate-x-1'}
+                `}
+              />
+            </button>
+          )}
           {onEdit && (
             <button
               onClick={(e) => {

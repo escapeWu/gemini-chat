@@ -239,3 +239,199 @@ describe('可交互元素覆盖测试', () => {
     expect(interactiveElements.length).toBeGreaterThanOrEqual(20);
   });
 });
+
+
+// ============ 视图切换属性测试 ============
+
+/**
+ * 侧边栏视图类型
+ */
+type SidebarView = 'assistants' | 'settings' | 'images';
+
+/**
+ * 视图状态模拟
+ */
+interface ViewState {
+  currentView: SidebarView;
+}
+
+/**
+ * 根据视图状态决定应该渲染的组件
+ * 这是 Layout 组件中视图切换逻辑的纯函数版本
+ */
+function getRenderedComponent(state: ViewState): 'FullscreenGallery' | 'ChatArea' {
+  return state.currentView === 'images' ? 'FullscreenGallery' : 'ChatArea';
+}
+
+/**
+ * 模拟视图切换操作
+ */
+function switchView(state: ViewState, targetView: SidebarView): ViewState {
+  return { ...state, currentView: targetView };
+}
+
+/**
+ * 模拟返回对话操作
+ */
+function backToChat(state: ViewState): ViewState {
+  return { ...state, currentView: 'assistants' };
+}
+
+// ============ 生成器 ============
+
+/**
+ * 生成侧边栏视图类型
+ */
+const sidebarViewArb: fc.Arbitrary<SidebarView> = fc.constantFrom(
+  'assistants',
+  'settings',
+  'images'
+);
+
+/**
+ * 生成视图状态
+ */
+const viewStateArb: fc.Arbitrary<ViewState> = fc.record({
+  currentView: sidebarViewArb,
+});
+
+describe('视图切换属性测试', () => {
+  /**
+   * **Feature: ui-fixes-gallery, Property 1: 视图切换正确性**
+   * 
+   * 对于任意视图状态，当 currentView 为 'images' 时，
+   * 主内容区应渲染图片库组件而非对话组件
+   * 
+   * **Validates: Requirements 2.1, 2.2**
+   */
+  it('Property 1: 视图切换正确性 - images 视图渲染 FullscreenGallery', () => {
+    fc.assert(
+      fc.property(
+        viewStateArb,
+        (state) => {
+          const renderedComponent = getRenderedComponent(state);
+          
+          if (state.currentView === 'images') {
+            // 当视图为 images 时，应渲染 FullscreenGallery
+            expect(renderedComponent).toBe('FullscreenGallery');
+          } else {
+            // 当视图为其他值时，应渲染 ChatArea
+            expect(renderedComponent).toBe('ChatArea');
+          }
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  /**
+   * **Feature: ui-fixes-gallery, Property 1: 视图切换正确性**
+   * 
+   * 验证切换到 images 视图后，渲染的组件是 FullscreenGallery
+   * 
+   * **Validates: Requirements 2.1, 2.2**
+   */
+  it('Property 1: 视图切换正确性 - 切换到 images 后渲染正确组件', () => {
+    fc.assert(
+      fc.property(
+        viewStateArb,
+        (initialState) => {
+          // 切换到 images 视图
+          const newState = switchView(initialState, 'images');
+          const renderedComponent = getRenderedComponent(newState);
+          
+          // 应该渲染 FullscreenGallery
+          expect(renderedComponent).toBe('FullscreenGallery');
+          expect(newState.currentView).toBe('images');
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  /**
+   * **Feature: ui-fixes-gallery, Property 2: 视图切换往返一致性**
+   * 
+   * 对于任意初始对话状态，切换到图片库再切换回对话，
+   * 对话界面应恢复到原始状态
+   * 
+   * **Validates: Requirements 2.3**
+   */
+  it('Property 2: 视图切换往返一致性 - 切换到图片库再返回对话', () => {
+    fc.assert(
+      fc.property(
+        viewStateArb,
+        (initialState) => {
+          // 1. 切换到图片库
+          const afterSwitchToImages = switchView(initialState, 'images');
+          expect(afterSwitchToImages.currentView).toBe('images');
+          expect(getRenderedComponent(afterSwitchToImages)).toBe('FullscreenGallery');
+          
+          // 2. 返回对话
+          const afterBackToChat = backToChat(afterSwitchToImages);
+          expect(afterBackToChat.currentView).toBe('assistants');
+          expect(getRenderedComponent(afterBackToChat)).toBe('ChatArea');
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  /**
+   * **Feature: ui-fixes-gallery, Property 2: 视图切换往返一致性**
+   * 
+   * 验证多次往返切换后状态保持一致
+   * 
+   * **Validates: Requirements 2.3**
+   */
+  it('Property 2: 视图切换往返一致性 - 多次往返切换', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 10 }),
+        (roundTrips) => {
+          let state: ViewState = { currentView: 'assistants' };
+          
+          for (let i = 0; i < roundTrips; i++) {
+            // 切换到图片库
+            state = switchView(state, 'images');
+            expect(state.currentView).toBe('images');
+            
+            // 返回对话
+            state = backToChat(state);
+            expect(state.currentView).toBe('assistants');
+          }
+          
+          // 最终状态应该是对话视图
+          expect(state.currentView).toBe('assistants');
+          expect(getRenderedComponent(state)).toBe('ChatArea');
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  /**
+   * **Feature: ui-fixes-gallery, Property 1: 视图切换正确性**
+   * 
+   * 验证非 images 视图都渲染 ChatArea
+   * 
+   * **Validates: Requirements 2.1, 2.2**
+   */
+  it('Property 1: 视图切换正确性 - 非 images 视图渲染 ChatArea', () => {
+    const nonImageViews: SidebarView[] = ['assistants', 'settings'];
+    
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...nonImageViews),
+        (view) => {
+          const state: ViewState = { currentView: view };
+          const renderedComponent = getRenderedComponent(state);
+          
+          // 非 images 视图应渲染 ChatArea
+          expect(renderedComponent).toBe('ChatArea');
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+});

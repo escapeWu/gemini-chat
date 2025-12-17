@@ -25,6 +25,22 @@ const itemArb = fc.record({
  */
 const nonEmptyListArb = fc.array(itemArb, { minLength: 1, maxLength: 20 });
 
+/**
+ * 生成具有唯一 ID 的列表项
+ * 用于需要通过 ID 区分元素的测试
+ */
+const uniqueIdItemArb = (index: number) => fc.record({
+  id: fc.constant(`item-${index}`),
+  title: fc.string({ minLength: 1, maxLength: 50 }),
+});
+
+/**
+ * 生成具有唯一 ID 的非空列表
+ */
+const uniqueIdListArb = fc.integer({ min: 3, max: 20 }).chain(length =>
+  fc.tuple(...Array.from({ length }, (_, i) => uniqueIdItemArb(i)))
+);
+
 // ============ 属性测试 ============
 
 describe('侧边栏拖拽排序属性测试', () => {
@@ -241,7 +257,7 @@ describe('侧边栏拖拽排序属性测试', () => {
   it('Property 9: 侧边栏拖拽排序 - 其他元素相对顺序保持不变', () => {
     fc.assert(
       fc.property(
-        fc.array(itemArb, { minLength: 3, maxLength: 20 }),
+        uniqueIdListArb,
         fc.integer({ min: 0, max: 100 }),
         fc.integer({ min: 0, max: 100 }),
         (list, fromIndex, toIndex) => {

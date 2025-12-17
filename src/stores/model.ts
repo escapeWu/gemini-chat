@@ -16,6 +16,7 @@ import {
   mergeModels,
   getEffectiveConfig,
   detectModelCapabilities,
+  setNewModelsDisabled,
 } from '../services/model';
 
 // ============ Store 状态接口 ============
@@ -125,15 +126,21 @@ export const useModelStore = create<ModelStore>((set, get) => ({
   },
 
   // 从 API 获取模型列表
-  // 需求: 1.1, 1.4
+  // 需求: 1.1, 1.4, 4.3, 4.4
   fetchModels: async (endpoint: string, apiKey: string) => {
     set({ isLoading: true, error: null });
     try {
       const remoteModels = await fetchModels(endpoint, apiKey);
       const currentModels = get().models;
       
+      // 获取当前已有的模型 ID 集合
+      const existingModelIds = new Set(currentModels.map(m => m.id));
+      
+      // 需求 4.4: 新获取的模型默认禁用
+      const remoteModelsWithEnabled = setNewModelsDisabled(remoteModels, existingModelIds);
+      
       // 合并远程和本地模型
-      const mergedModels = mergeModels(remoteModels, currentModels);
+      const mergedModels = mergeModels(remoteModelsWithEnabled, currentModels);
       
       set({
         models: mergedModels,

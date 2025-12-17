@@ -24,6 +24,8 @@ export interface ChatWindowConfig {
   safetySettings?: SafetySetting[];
   /** 高级参数配置（思考程度、图片配置等） */
   advancedConfig?: ModelAdvancedConfig;
+  /** 对话级别流式响应设置（undefined 表示使用全局设置） */
+  streamingEnabled?: boolean;
 }
 
 // ============ 子话题 ============

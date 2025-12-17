@@ -15,6 +15,7 @@ import { Sidebar } from './components/Sidebar/index';
 import { ChatArea } from './components/ChatArea/ChatArea';
 import { AppLoader } from './components/Loading';
 import { ErrorBoundary, ErrorMessage } from './components/Error';
+import { AuthGuard } from './components/Auth';
 import { useChatWindowStore } from './stores/chatWindow';
 import { useSettingsStore } from './stores/settings';
 import { useModelStore } from './stores/model';
@@ -141,14 +142,16 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <AppLoader isLoading={isLoading} minLoadTime={500}>
-        <Layout
-          sidebar={<Sidebar />}
-        >
-          {/* 聊天区域 - 直接使用 ChatArea，不需要额外包装 */}
-          <ChatArea />
-        </Layout>
-      </AppLoader>
+      <AuthGuard>
+        <AppLoader isLoading={isLoading} minLoadTime={500}>
+          <Layout
+            sidebar={<Sidebar />}
+          >
+            {/* 聊天区域 - 直接使用 ChatArea，不需要额外包装 */}
+            <ChatArea />
+          </Layout>
+        </AppLoader>
+      </AuthGuard>
     </ErrorBoundary>
   );
 }

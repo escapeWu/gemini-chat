@@ -77,3 +77,17 @@ export {
   createDefaultSubTopic,
   createDefaultChatWindow,
 } from './chatWindow';
+
+// 鉴权相关类型
+export type { AuthState, AuthConfig } from './auth';
+
+export { DEFAULT_PASSWORD, AUTH_CONFIG_KEY } from './auth';
+
+// 图片历史记录相关类型
+export type {
+  GeneratedImage,
+  ImageState,
+  ImageActions,
+} from './image';
+
+export { generateImageId, createGeneratedImage } from './image';

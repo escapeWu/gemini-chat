@@ -14,6 +14,8 @@ import { durationValues, easings, touchTargets } from '../design/tokens';
 interface MessageInputProps {
   /** 发送消息回调 */
   onSend: (content: string, attachments?: Attachment[]) => void;
+  /** 取消请求回调 - 需求: 5.1 */
+  onCancel?: () => void;
   /** 是否正在发送 */
   isSending?: boolean;
   /** 是否禁用 */
@@ -53,6 +55,7 @@ export function calculateInputHeight(content: string): number {
  */
 export function MessageInput({
   onSend,
+  onCancel,
   isSending = false,
   disabled = false,
   placeholder = '输入消息...',
@@ -314,28 +317,48 @@ export function MessageInput({
           />
         </div>
 
-        {/* 发送按钮 - Requirements: 9.4 主题色 */}
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={!canSend}
-          className={`
-            p-3 rounded-2xl flex-shrink-0 touch-manipulation
-            flex items-center justify-center
-            ${canSend
-              ? 'bg-primary-500 hover:bg-primary-600 active:scale-95 text-white shadow-md shadow-primary-500/30 hover:shadow-lg hover:shadow-primary-500/40'
-              : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-500 cursor-not-allowed'
-            }
-          `}
-          style={{ ...transitionStyle, minWidth: touchTargets.minimum, minHeight: touchTargets.minimum }}
-          title="发送消息"
-        >
-          {isSending ? (
-            <LoadingSpinner className="w-5 h-5" />
-          ) : (
-            <SendIcon className="w-5 h-5" />
-          )}
-        </button>
+        {/* 发送/取消按钮 - Requirements: 9.4, 5.1 */}
+        {isSending && onCancel ? (
+          // 取消按钮 - 需求: 5.1 在发送状态时显示取消按钮
+          <button
+            type="button"
+            onClick={onCancel}
+            className="
+              p-3 rounded-2xl flex-shrink-0 touch-manipulation
+              flex items-center justify-center
+              bg-error-light hover:bg-red-600 active:scale-95 
+              text-white shadow-md shadow-error-light/30 
+              hover:shadow-lg hover:shadow-error-light/40
+            "
+            style={{ ...transitionStyle, minWidth: touchTargets.minimum, minHeight: touchTargets.minimum }}
+            title="取消请求"
+          >
+            <StopIcon className="w-5 h-5" />
+          </button>
+        ) : (
+          // 发送按钮 - Requirements: 9.4 主题色
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={!canSend}
+            className={`
+              p-3 rounded-2xl flex-shrink-0 touch-manipulation
+              flex items-center justify-center
+              ${canSend
+                ? 'bg-primary-500 hover:bg-primary-600 active:scale-95 text-white shadow-md shadow-primary-500/30 hover:shadow-lg hover:shadow-primary-500/40'
+                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-500 cursor-not-allowed'
+              }
+            `}
+            style={{ ...transitionStyle, minWidth: touchTargets.minimum, minHeight: touchTargets.minimum }}
+            title="发送消息"
+          >
+            {isSending ? (
+              <LoadingSpinner className="w-5 h-5" />
+            ) : (
+              <SendIcon className="w-5 h-5" />
+            )}
+          </button>
+        )}
       </div>
 
       {/* 工具栏 - 移到输入框下方 - Requirements: 7.2, 7.3 */}
@@ -603,6 +626,17 @@ function UploadIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+    </svg>
+  );
+}
+
+/**
+ * 停止图标 - 需求: 5.1
+ */
+function StopIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <rect x="6" y="6" width="12" height="12" rx="2" />
     </svg>
   );
 }

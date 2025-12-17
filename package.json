@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.13.13",
     "idb": "^8.0.1",
     "katex": "^0.16.11",
     "react": "^18.3.1",
