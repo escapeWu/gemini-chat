@@ -26,9 +26,33 @@ export interface AuthConfig {
 }
 
 /**
- * 默认密码
+ * 默认密码（当环境变量未设置时使用）
  */
-export const DEFAULT_PASSWORD = 'adminiadmin';
+export const FALLBACK_PASSWORD = 'adminiadmin';
+
+/**
+ * 从环境变量获取密码（构建时）或从 window 配置获取（运行时）
+ */
+const getEnvPassword = (): string | undefined => {
+  // 优先从 window 配置读取（Docker 运行时注入）
+  if (typeof window !== 'undefined' && (window as { __APP_CONFIG__?: { AUTH_PASSWORD?: string } }).__APP_CONFIG__?.AUTH_PASSWORD) {
+    return (window as { __APP_CONFIG__?: { AUTH_PASSWORD?: string } }).__APP_CONFIG__!.AUTH_PASSWORD;
+  }
+  // 其次从 Vite 环境变量读取（构建时注入）
+  return import.meta.env.VITE_AUTH_PASSWORD as string | undefined;
+};
+
+export const ENV_PASSWORD = getEnvPassword();
+
+/**
+ * 获取实际使用的密码
+ */
+export const DEFAULT_PASSWORD = ENV_PASSWORD || FALLBACK_PASSWORD;
+
+/**
+ * 是否使用了环境变量密码
+ */
+export const IS_ENV_PASSWORD = !!ENV_PASSWORD;
 
 /**
  * LocalStorage 中存储鉴权配置的键名

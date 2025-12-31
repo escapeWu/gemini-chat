@@ -54,7 +54,8 @@
 
 ### 🔐 安全功能
 
-- **密码保护**: 可选的登录密码保护
+- **密码保护**: 支持通过环境变量 `VITE_AUTH_PASSWORD` 设置密码
+- **默认密码**: 未设置环境变量时使用默认密码 `adminiadmin`，首次登录后需修改
 - **本地存储**: 所有数据存储在浏览器本地（IndexedDB），不上传到服务器
 
 ### 🎨 界面特性
@@ -83,11 +84,17 @@ cd gemini-chat
 # 安装依赖
 npm install
 
+# （可选）配置自定义密码
+cp .env.example .env
+# 编辑 .env 文件，设置 VITE_AUTH_PASSWORD=your_password
+
 # 启动开发服务器
 npm run dev
 ```
 
 访问 http://localhost:5173 即可使用。
+
+如果不设置 `VITE_AUTH_PASSWORD`，将使用默认密码 `adminiadmin`，首次登录后会提示修改。
 
 ### 构建生产版本
 
@@ -109,6 +116,15 @@ npm run preview
 docker pull bohesocool/gemini-chat:latest
 docker run -d -p 5173:80 --name gemini-chat bohesocool/gemini-chat:latest
 ```
+
+### 使用环境变量设置密码
+
+```bash
+# 通过环境变量设置自定义密码
+docker run -d -p 5173:80 -e VITE_AUTH_PASSWORD=your_password --name gemini-chat bohesocool/gemini-chat:latest
+```
+
+如果不设置 `VITE_AUTH_PASSWORD` 环境变量，将使用默认密码 `adminiadmin`，首次登录后会提示修改密码。
 
 ### 使用 Docker Compose
 

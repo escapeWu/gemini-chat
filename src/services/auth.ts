@@ -4,7 +4,7 @@
  * Requirements: 5.4, 5.5, 5.6, 1.1, 1.3, 1.5
  */
 
-import { AuthConfig, DEFAULT_PASSWORD, AUTH_CONFIG_KEY } from '../types/auth';
+import { AuthConfig, DEFAULT_PASSWORD, AUTH_CONFIG_KEY, IS_ENV_PASSWORD } from '../types/auth';
 import { authLogger as logger } from './logger';
 import {
   generateToken,
@@ -92,6 +92,7 @@ export function saveAuthConfig(config: AuthConfig): void {
 /**
  * 初始化鉴权配置
  * 如果没有配置，则使用默认密码创建配置
+ * 如果使用了环境变量密码，则不需要强制重置
  * 
  * @returns 鉴权配置
  */
@@ -103,7 +104,8 @@ export async function initAuthConfig(): Promise<AuthConfig> {
     const defaultHash = await hashPassword(DEFAULT_PASSWORD);
     config = {
       passwordHash: defaultHash,
-      isDefaultPassword: true,
+      // 如果使用环境变量密码，则不需要强制重置
+      isDefaultPassword: !IS_ENV_PASSWORD,
     };
     saveAuthConfig(config);
     logger.info('已创建默认鉴权配置');

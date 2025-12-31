@@ -5,6 +5,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useAuthStore } from '../../stores/auth';
+import { IS_ENV_PASSWORD } from '../../types/auth';
 
 /**
  * 登录页面
@@ -123,9 +124,11 @@ export function LoginPage() {
           </form>
 
           {/* 提示信息 */}
-          <p className="text-xs text-neutral-400 dark:text-neutral-500 text-center mt-6">
-            默认密码: adminiadmin
-          </p>
+          {!IS_ENV_PASSWORD && (
+            <p className="text-xs text-neutral-400 dark:text-neutral-500 text-center mt-6">
+              默认密码: adminiadmin
+            </p>
+          )}
         </div>
       </div>
     </div>
