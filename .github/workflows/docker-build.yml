@@ -28,7 +28,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: bohesocool/autoceya
+          images: bohesocool/gemini-chat
           tags: |
             # 为分支推送生成latest标签
             type=raw,value=latest,enable={{is_default_branch}}
@@ -48,6 +48,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=bohesocool/autoceya:buildcache
-          cache-to: type=registry,ref=bohesocool/autoceya:buildcache,mode=max
+          cache-from: type=registry,ref=bohesocool/gemini-chat:buildcache
+          cache-to: type=registry,ref=bohesocool/gemini-chat:buildcache,mode=max
           platforms: linux/amd64,linux/arm64  # 支持多平台

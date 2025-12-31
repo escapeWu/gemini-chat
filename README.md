@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/bohesocool/gemini-chat">GitHub</a> •
   <a href="#功能特性">功能特性</a> •
   <a href="#快速开始">快速开始</a> •
   <a href="#docker-部署">Docker 部署</a> •
-  <a href="#配置说明">配置说明</a> •
-  <a href="#技术栈">技术栈</a>
+  <a href="#配置说明">配置说明</a>
 </p>
 
 ---
@@ -54,8 +54,7 @@
 
 ### 🔐 安全功能
 
-- **密码保护**: 可选的登录密码保护（默认密码: `adminiadmin`）
-- **密码重置**: 支持修改默认密码
+- **密码保护**: 可选的登录密码保护
 - **本地存储**: 所有数据存储在浏览器本地（IndexedDB），不上传到服务器
 
 ### 🎨 界面特性
@@ -78,7 +77,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/gemini-chat.git
+git clone https://github.com/bohesocool/gemini-chat.git
 cd gemini-chat
 
 # 安装依赖
@@ -100,21 +99,18 @@ npm run build
 npm run preview
 ```
 
-### 运行测试
-
-```bash
-# 运行所有测试
-npm test
-
-# 监听模式
-npm run test:watch
-```
-
 ---
 
 ## Docker 部署
 
-### 使用 Docker Compose（推荐）
+### 使用预构建镜像（推荐）
+
+```bash
+docker pull bohesocool/gemini-chat:latest
+docker run -d -p 5173:80 --name gemini-chat bohesocool/gemini-chat:latest
+```
+
+### 使用 Docker Compose
 
 ```bash
 # 启动服务
@@ -137,13 +133,6 @@ docker build -t gemini-chat .
 
 # 运行容器
 docker run -d -p 5173:80 --name gemini-chat gemini-chat
-```
-
-### 使用预构建镜像
-
-```bash
-docker pull bohesocool/autoceya:latest
-docker run -d -p 5173:80 --name gemini-chat bohesocool/autoceya:latest
 ```
 
 ---
@@ -174,39 +163,6 @@ docker run -d -p 5173:80 --name gemini-chat bohesocool/autoceya:latest
 
 ---
 
-## 项目结构
-
-```
-gemini-chat/
-├── src/
-│   ├── components/          # React 组件
-│   │   ├── Auth/            # 认证相关（登录、密码重置）
-│   │   ├── ChatArea/        # 聊天区域（消息列表、输入框、配置面板）
-│   │   ├── Debug/           # 调试面板（请求详情、Token 统计）
-│   │   ├── Gallery/         # 图片画廊（全屏预览、工具栏）
-│   │   ├── ModelParams/     # 模型参数配置组件
-│   │   ├── Settings/        # 设置面板
-│   │   └── Sidebar/         # 侧边栏（窗口列表、搜索、设置）
-│   ├── services/            # 业务逻辑
-│   │   ├── gemini.ts        # Gemini API 调用
-│   │   ├── storage.ts       # 数据持久化（IndexedDB）
-│   │   ├── auth.ts          # 认证服务
-│   │   └── ...
-│   ├── stores/              # Zustand 状态管理
-│   │   ├── chatWindow.ts    # 聊天窗口状态
-│   │   ├── settings.ts      # 设置状态
-│   │   ├── auth.ts          # 认证状态
-│   │   └── ...
-│   ├── types/               # TypeScript 类型定义
-│   └── utils/               # 工具函数
-├── public/                  # 静态资源
-├── docker-compose.yml       # Docker Compose 配置
-├── Dockerfile               # Docker 构建文件
-└── nginx.conf               # Nginx 配置
-```
-
----
-
 ## 技术栈
 
 | 类别 | 技术 |
@@ -216,30 +172,8 @@ gemini-chat/
 | 状态管理 | Zustand 5 |
 | 样式 | Tailwind CSS 3 |
 | Markdown | react-markdown + rehype-highlight + rehype-katex |
-| 数学公式 | KaTeX |
-| 虚拟列表 | @tanstack/react-virtual |
 | 本地存储 | IndexedDB (idb) |
-| 测试 | Vitest + fast-check (属性测试) |
 | 部署 | Docker + Nginx |
-
----
-
-## 开发指南
-
-### 代码规范
-
-```bash
-# 运行 ESLint 检查
-npm run lint
-```
-
-### 添加新模型
-
-在 `src/types/models.ts` 中的 `GEMINI_MODELS` 数组添加模型信息，并在 `MODEL_CAPABILITIES` 中配置模型能力。
-
-### 自定义主题
-
-修改 `src/design/variables.css` 中的 CSS 变量和 `tailwind.config.js` 中的主题配置。
 
 ---
 
@@ -261,45 +195,9 @@ npm run lint
 
 ---
 
-## 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add some amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 提交 Pull Request
-
----
-
 ## 许可证
 
 本项目采用 [MIT License](LICENSE) 开源许可证。
-
-```
-MIT License
-
-Copyright (c) 2024 Gemini Chat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
 
 ---
 
